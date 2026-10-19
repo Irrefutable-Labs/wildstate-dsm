@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const wallet=vi.hoisted(()=>({bind:undefined as undefined|((state:any)=>void),resumes:true}));
+const wallet=vi.hoisted(()=>({bind:undefined as undefined|((state:any)=>void),resumes:'resumed' as 'resumed'|'disconnected'|'none'}));
 vi.mock('../src/modules/main/dsm',()=>({connectWallet:vi.fn(async(_p:any,b:any)=>{wallet.bind=b;}),leave:vi.fn(),openPanel:vi.fn(),resumeWallet:vi.fn(async()=>wallet.resumes),watchWallet:vi.fn()}));
 vi.mock('../src/modules/main/field',()=>({fieldHud:vi.fn(),checkEncounter:vi.fn(),commit:vi.fn(),setFighting:vi.fn(),setInArena:vi.fn()}));
 vi.mock('../src/modules/main/journey',()=>({openJourney:vi.fn(),session:vi.fn()}));
@@ -7,7 +7,7 @@ vi.mock('../src/modules/main/lobby',()=>({leaveLobby:vi.fn(),rejoin:vi.fn(async(
 import { reconcileAvatars } from '../src/modules/main/presence';
 import { player } from '../src/modules/main/player';
 function fixture(){let save='',connected=true;const creatureSave:any=()=>save;creatureSave.set=(v:string)=>{save=v;};return {id:'current',t:()=>'',name:'',through:false,throughEvent:false,_graphicScale:Object.assign(()=>1,{set:vi.fn()}),graphics:Object.assign(()=>['hero'],{set:vi.fn()}),setGraphic:vi.fn(),setHitbox:vi.fn(),getGui:()=>undefined,breakRoutes:vi.fn(),changeMap:vi.fn(async()=>{}),getCurrentMap:()=>({getPlayers:()=>[]}),creatureSave,isConnected:()=>connected,disconnect:()=>{connected=false;}} as any;}
-beforeEach(()=>{wallet.bind=undefined;wallet.resumes=true;});
+beforeEach(()=>{wallet.bind=undefined;wallet.resumes='resumed';});
 it('shows one avatar only after wallet connection, and clears it on disconnect',async()=>{
  const p=fixture();await player.onConnected!(p);player.onJoinMap!(p,p.getCurrentMap());
  expect(p.setGraphic).not.toHaveBeenCalled();expect(p.through).toBe(true);
@@ -69,9 +69,15 @@ it('picks its wallet session up again when the page comes back with its game loa
  expect(p.setGraphic).toHaveBeenCalledWith('hero');
 });
 it('connects afresh when the wallet has no session left to pick up',async()=>{
- wallet.resumes=false;const p=fixture();p.creatureSave.set(JSON.stringify({holder:'gone-wallet'}));
+ wallet.resumes='none';const p=fixture();p.creatureSave.set(JSON.stringify({holder:'gone-wallet'}));
  player.onJoinMap!(p,p.getCurrentMap());await new Promise(r=>setTimeout(r,0));
  expect(wallet.bind).toBeDefined();
+});
+it('tells a page that comes back that its wallet disconnected while it was away',async()=>{
+ wallet.resumes='disconnected';const p=fixture();p.creatureSave.set(JSON.stringify({holder:'ended-wallet'}));
+ player.onJoinMap!(p,p.getCurrentMap());await new Promise(r=>setTimeout(r,0));
+ const { connectWallet } = await import('../src/modules/main/dsm');
+ expect(connectWallet).toHaveBeenLastCalledWith(p,expect.any(Function),'Your wallet disconnected from the game.');
 });
 it('ignores the map characters that run the move hook without a game save',async()=>{
  const { checkEncounter } = await import('../src/modules/main/field');
