@@ -47,14 +47,15 @@ export const player: RpgPlayerHooks = {
     });
     // No wallet, no game: a wallet that ends its session with the game (from its own Apps screen)
     // sends the page back to the connect screen, whatever it was doing.
-    watchWallet(player, () => {
+    const disconnected = () => {
       if (!player.isConnected()) return;
       for (const id of ['dsm-market', 'bramble-shop', 'lobby', 'creature-battle', 'mission-board', 'portrait-dialogue', 'field-hud']) player.getGui(id)?.close();
       leaveLobby(player);
       setFighting(player, false);
       setInArena(player, false);
       void connect('Your wallet disconnected from the game.');
-    });
+    };
+    watchWallet(player, disconnected);
     if (player.creatureSave()) {
       // The page came back with its game loaded (from the wallet app, or after a dropped
       // connection). Its wallet session comes back from the game's account before anything asks
@@ -63,7 +64,12 @@ export const player: RpgPlayerHooks = {
       activateAvatar(player, holder);
       fieldHud(player);
       resumeWallet(player, holder)
-        .then((resumed) => { if (!player.isConnected()) return; if (resumed) void rejoin(player); else void connect(); })
+        .then((resumed) => {
+          if (!player.isConnected()) return;
+          // A wallet that ended its session while the page was away (on the phone, in the wallet
+          // app) is told like one that ends it while the page is open.
+          if (resumed === 'resumed') void rejoin(player); else if (resumed === 'disconnected') disconnected(); else void connect();
+        })
         .catch(() => { if (player.isConnected()) void connect(); });
       return;
     }

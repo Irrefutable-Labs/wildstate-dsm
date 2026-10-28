@@ -212,25 +212,33 @@ export function walletWaiting(player: RpgPlayer): string | null {
  * A page that comes back with its game already loaded (the phone switched to the wallet app and
  * back, or the network dropped) still has its wallet's session on the game's account: the
  * connection the wallet approved outlives the page's socket. Pick it up again, so requests keep
- * going over it; false when there is none to pick up and the wallet must connect afresh.
+ * going over it. Otherwise the wallet must connect afresh: 'disconnected' when the wallet ended
+ * its session while the page was away (on a phone, disconnecting means leaving the page for the
+ * wallet app, so the session check never saw it), 'none' when there is no session to pick up.
  */
-export async function resumeWallet(player: RpgPlayer, holder: string): Promise<boolean> {
+export async function resumeWallet(player: RpgPlayer, holder: string): Promise<'resumed' | 'disconnected' | 'none'> {
   const seat = seatOf(player);
-  if (seat.session && seat.wallet === holder) return true;
+  if (seat.session && seat.wallet === holder) return 'resumed';
   const w = await world();
-  const live = (await w.host.sessions())
-    .filter((s) => b32(s.peerDeviceId) === holder && s.status !== pb.ConnectSessionStatus.DISCONNECTED && grantIsCurrent(s, w))
+  const mine = (await w.host.sessions()).filter((s) => b32(s.peerDeviceId) === holder);
+  const live = mine
+    .filter((s) => s.status !== pb.ConnectSessionStatus.DISCONNECTED && grantIsCurrent(s, w))
     // The one in use most recently: the wallet answers on every session it approved.
     .sort((a, b) => (a.lastSeq < b.lastSeq ? 1 : a.lastSeq > b.lastSeq ? -1 : 0));
-  if (!live.length || !seats.has(player.id)) return false;
-  seat.session = own(live[0].sessionId);
-  seat.wallet = holder;
+  if (!seats.has(player.id)) return 'none';
   const kept = feeds.get(holder);
   if (kept) { seat.feed = kept; feeds.delete(holder); }
+  if (!live.length) {
+    const ended = mine.some((s) => s.status === pb.ConnectSessionStatus.DISCONNECTED);
+    if (ended) pushEntries(seat, [entry('dsm', 'Wallet disconnected', `Wallet ${short(holder)} ended its session with the game while the page was away: back to the connect screen`, 'fail')]);
+    return ended ? 'disconnected' : 'none';
+  }
+  seat.session = own(live[0].sessionId);
+  seat.wallet = holder;
   seat.offerDigest = b32(live[0].offerDigest);
   pushEntries(seat, [entry('web2', 'Connection resumed', `The page came back; it goes on with wallet ${short(holder)}'s session. Nothing about DSM changed`, 'ok')]);
   proveLater(player);
-  return true;
+  return 'resumed';
 }
 
 function panel(seat: Seat): PanelData {

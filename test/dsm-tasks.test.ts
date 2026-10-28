@@ -433,6 +433,31 @@ describe('Bramble\'s board', () => {
       expect((panels.get(pa.id)?.entries ?? []).some((e) => e.title === 'Wallet disconnected')).toBe(true);
     });
 
+    it('tells a page that was away when its wallet disconnected (the phone was in the wallet app)', async () => {
+      const w = await wallet(settled, true);
+      const p = await w.connect('page-away');
+      // The page goes to the background: its socket drops and its session is no longer checked.
+      dsm.leave(p);
+      fixture.sessions.find((s) => b32(s.peerDeviceId) === w.holder)!.status = 2;
+      await dsm.checkSessions();
+      const back = page('page-away');
+      expect(await dsm.resumeWallet(back, w.holder)).toBe('disconnected');
+      expect(dsm.walletConnected(back)).toBe(false);
+      const titles = (panels.get(back.id)?.entries ?? []).map((e) => e.title);
+      expect(titles).toContain('Profile loaded'); // the history it had before going away
+      expect(titles.at(-1)).toBe('Wallet disconnected');
+    });
+
+    it('does not call a session the wallet still holds disconnected, when the page cannot pick it up', async () => {
+      // The fixture's sessions carry no grant for the game's current offer, so none resumes.
+      const w = await wallet(settled, true);
+      const p = await w.connect('page-stale');
+      dsm.leave(p);
+      const back = page('page-stale');
+      expect(await dsm.resumeWallet(back, w.holder)).toBe('none');
+      expect((panels.get(back.id)?.entries ?? []).map((e) => e.title)).not.toContain('Wallet disconnected');
+    });
+
     it('does not resume a disconnected session when the page connects again: it shows a fresh code', async () => {
       const w = await wallet(settled, true);
       const p = await w.connect('page-dead');
