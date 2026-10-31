@@ -26,6 +26,8 @@ import * as pb from '../../integrations/dsm/proto/dsm_app_pb';
 
 /** The game's DSM account (`dsm-app-host`): the game does not run without it. */
 const DSM_HOST_URL: string | undefined = process.env.DSM_APP_HOST;
+/** The host's `<data-dir>/ingress-token`: every call carries the secret it holds. */
+const DSM_HOST_SECRET_FILE: string | undefined = process.env.DSM_APP_HOST_SECRET_FILE;
 const RECORD_PATH = process.env.DSM_GAME_RECORD ? process.env.DSM_GAME_RECORD : 'data/dsm-game.json';
 
 // ------------------------------- the overlay -------------------------------
@@ -83,9 +85,10 @@ function entry(lane: OverlayEntry['lane'], title: string, detail: string, tone: 
 
 export function world(): Promise<World> {
   if (!DSM_HOST_URL) return Promise.reject(new Error('the game was started without DSM_APP_HOST'));
+  if (!DSM_HOST_SECRET_FILE) return Promise.reject(new Error('the game was started without DSM_APP_HOST_SECRET_FILE'));
   if (!worldReady) {
     worldReady = (async () => {
-      const host = new DsmHost(DSM_HOST_URL as string);
+      const host = new DsmHost(DSM_HOST_URL as string, DSM_HOST_SECRET_FILE as string);
       const meta = await host.activity(0n);
       // Node only: the game's record lives on the game server's disk.
       const { Economy } = await import('../../integrations/dsm/economy');

@@ -53,8 +53,10 @@ Play once with it closed: it is just a game. Then open it.
 2. The game, in DSM mode. The game server runs in Node and reaches the account:
 
    ```
-   DSM_APP_HOST=http://127.0.0.1:8787 npm run dev
+   DSM_APP_HOST=http://127.0.0.1:8787 DSM_APP_HOST_SECRET_FILE=~/.wildstate-account/ingress-token npm run dev
    ```
+
+   The host writes a new ingress secret to `<data-dir>/ingress-token` at every launch and refuses a call without it. The game reads that file for each call, so a restarted host is reached with its new secret.
 
    The first start claims ERA from the faucet if the account needs it, creates WILD and opens the WILD/ERA market. Progress shows in the overlay. The game's own record is `data/dsm-game.json`.
 

@@ -48,7 +48,7 @@ Bug reports and mission reports also land in this repository's [issues](https://
 
 The game is RPGJS v5 (Vue client, Node server) with DSM underneath. The server reaches its own DSM account through `dsm-app-host`; players reach it through their wallets (DSM Amendment A11, see `docs/dsm-integration.md`). There is no local mode: the game does not start without its account.
 
-- `npm install`, start the game account (`docs/dsm-integration.md`), then `DSM_APP_HOST=http://127.0.0.1:8787 npm run dev`.
+- `npm install`, start the game account (`docs/dsm-integration.md`), then `DSM_APP_HOST=http://127.0.0.1:8787 DSM_APP_HOST_SECRET_FILE=<data-dir>/ingress-token npm run dev`.
 - `npm test`, `npm run typecheck` and `npm run build` after a change. After a change to the DSM proto, `npm run proto:gen` (it reads `../dsm/proto`, or `DSM_PROTO_DIR`).
 - **The Android app:** `docs/android-app.md` covers debug builds against a development server and the signed release APK. Art and client changes reach players only in a new APK; the weekly missions are a file on the server and need no build.
 - **The game server:** `deploy/README.md` covers the production host.

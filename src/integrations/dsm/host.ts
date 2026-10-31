@@ -76,7 +76,20 @@ export const short = (bytes: Uint8Array | string): string =>
 const HOST_CALL_TIMEOUT_MS = 120_000;
 
 export class DsmHost {
-  constructor(readonly base: string) {}
+  /**
+   * `secretFile` is the host's `<data-dir>/ingress-token`. The host writes a
+   * new secret there at every launch and refuses a call without it, so the
+   * file is read for each call: a restarted host is reached with its new one.
+   */
+  constructor(readonly base: string, private readonly secretFile: string) {}
+
+  private async authorization(): Promise<string> {
+    // Node only: the secret lives on the game server's disk.
+    const { readFile } = await import('node:fs/promises');
+    const secret = (await readFile(this.secretFile, 'utf8')).trim();
+    if (secret.length === 0) throw new HostError(`${this.secretFile} holds no ingress secret`);
+    return `Bearer ${secret}`;
+  }
 
   private async ingress(request: pb.IngressRequest, quiet: boolean): Promise<pb.IngressResponse> {
     const path = quiet ? '/ingress/quiet' : '/ingress';
@@ -85,7 +98,7 @@ export class DsmHost {
     try {
       const res = await fetch(`${this.base}${path}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/x-protobuf' },
+        headers: { 'content-type': 'application/x-protobuf', authorization: await this.authorization() },
         body: own(request.toBinary()),
         // A call the account never answers fails, instead of holding its player forever.
         signal: AbortSignal.timeout(HOST_CALL_TIMEOUT_MS),
@@ -114,7 +127,7 @@ export class DsmHost {
 
   /** What the host recorded after `after`, and who this account is. */
   async activity(after: bigint): Promise<pb.AppHostActivityV1> {
-    const res = await fetch(`${this.base}/activity/${after}`);
+    const res = await fetch(`${this.base}/activity/${after}`, { headers: { authorization: await this.authorization() } });
     if (!res.ok) throw new HostError(`/activity: the host answered ${res.status}`);
     return pb.AppHostActivityV1.fromBinary(new Uint8Array(await res.arrayBuffer()));
   }
