@@ -12,7 +12,7 @@ const required = name => {
   return value;
 };
 const account = new URL(required('DSM_APP_HOST'));
-// The host's <data-dir>/ingress-token: the game reads it for every call to its account.
+// The host's <ingress-secret-dir>/ingress-token: the game reads it for every call to its account.
 const accountSecretFile = required('DSM_APP_HOST_SECRET_FILE');
 // The account's spending ingress is never a public service.
 if (account.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(account.hostname)) {

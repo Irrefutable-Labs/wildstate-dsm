@@ -26,7 +26,7 @@ import * as pb from '../../integrations/dsm/proto/dsm_app_pb';
 
 /** The game's DSM account (`dsm-app-host`): the game does not run without it. */
 const DSM_HOST_URL: string | undefined = process.env.DSM_APP_HOST;
-/** The host's `<data-dir>/ingress-token`: every call carries the secret it holds. */
+/** The host's `<ingress-secret-dir>/ingress-token`: every call carries the secret it holds. */
 const DSM_HOST_SECRET_FILE: string | undefined = process.env.DSM_APP_HOST_SECRET_FILE;
 const RECORD_PATH = process.env.DSM_GAME_RECORD ? process.env.DSM_GAME_RECORD : 'data/dsm-game.json';
 

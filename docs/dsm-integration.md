@@ -42,7 +42,7 @@ Play once with it closed: it is just a game. Then open it.
 
    ```
    cargo run --release -p dsm-app-host -- \
-     --data-dir ~/.wildstate-account \
+     --data-dir ~/.wildstate-account --ingress-secret-dir ~/.wildstate-ingress \
      --env-config <dsm>/dsm_client/frontend/public/dsm_env_config.toml \
      --game-bind 127.0.0.1:8787 --relay-bind 0.0.0.0:8443 \
      --relay-endpoint https://<this machine's LAN address>:8443 --relay-name <LAN address>
@@ -53,10 +53,10 @@ Play once with it closed: it is just a game. Then open it.
 2. The game, in DSM mode. The game server runs in Node and reaches the account:
 
    ```
-   DSM_APP_HOST=http://127.0.0.1:8787 DSM_APP_HOST_SECRET_FILE=~/.wildstate-account/ingress-token npm run dev
+   DSM_APP_HOST=http://127.0.0.1:8787 DSM_APP_HOST_SECRET_FILE=~/.wildstate-ingress/ingress-token npm run dev
    ```
 
-   The host writes a new ingress secret to `<data-dir>/ingress-token` at every launch and refuses a call without it. The game reads that file for each call, so a restarted host is reached with its new secret.
+   The host writes a new ingress secret to `<ingress-secret-dir>/ingress-token` at every launch and refuses a call without it. That directory holds the secret alone (the host refuses one that is, or contains, its data directory), so the game is given the secret and never the account's keys or recovery mnemonic. The game reads the file for each call, so a restarted host is reached with its new secret.
 
    The first start claims ERA from the faucet if the account needs it, creates WILD and opens the WILD/ERA market. Progress shows in the overlay. The game's own record is `data/dsm-game.json`.
 

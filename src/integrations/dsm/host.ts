@@ -77,7 +77,7 @@ const HOST_CALL_TIMEOUT_MS = 120_000;
 
 export class DsmHost {
   /**
-   * `secretFile` is the host's `<data-dir>/ingress-token`. The host writes a
+   * `secretFile` is the host's `<ingress-secret-dir>/ingress-token`. The host writes a
    * new secret there at every launch and refuses a call without it, so the
    * file is read for each call: a restarted host is reached with its new one.
    */
