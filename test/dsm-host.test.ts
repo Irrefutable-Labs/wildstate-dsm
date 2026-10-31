@@ -65,3 +65,39 @@ describe("the game reaches its account with the host's ingress secret", () => {
     }
   });
 });
+
+describe('the game asks its account for a sync the way the router takes one', () => {
+  it('sends storage.sync as an invoke: the sync writes what it takes in', async () => {
+    const { createServer } = await import('node:http');
+    const { mkdtemp, writeFile, rm } = await import('node:fs/promises');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { DsmHost } = await import('../src/integrations/dsm/host');
+    const pb = await import('../src/integrations/dsm/proto/dsm_app_pb');
+    const seen: string[] = [];
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const operation = pb.IngressRequest.fromBinary(new Uint8Array(Buffer.concat(chunks))).operation;
+        const method = (operation.value as { method?: string } | undefined)?.method;
+        seen.push(`${operation.case} ${method}`);
+        res.statusCode = 401;
+        res.end('refused');
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (address === null || typeof address === 'string') throw new Error('the test server has no port');
+    const dir = await mkdtemp(join(tmpdir(), 'wildstate-sync-'));
+    const secretFile = join(dir, 'ingress-token');
+    try {
+      await writeFile(secretFile, 'SECRET');
+      await expect(new DsmHost(`http://127.0.0.1:${address.port}`, secretFile).sync()).rejects.toThrow('401');
+      expect(seen).toEqual(['routerInvoke storage.sync']);
+    } finally {
+      server.close();
+      await rm(dir, { recursive: true });
+    }
+  });
+});

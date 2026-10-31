@@ -145,9 +145,11 @@ export class DsmHost {
 
   /** Take in what the storage nodes hold for the account and push what it owes: the inbox poller's sync. */
   async sync(): Promise<pb.StorageSyncResponse> {
-    const payload = await this.query(
+    // An invoke: the sync writes what it takes in, and the router takes it only as one.
+    const payload = await this.invoke(
       'storage.sync',
       new pb.StorageSyncRequest({ pullInbox: true, pushPending: true, limit: 50 }).toBinary(),
+      true,
     );
     if (payload.case !== 'storageSyncResponse') throw new HostError(`storage.sync answered ${payload.case}`);
     return payload.value;
