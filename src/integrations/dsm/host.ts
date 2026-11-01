@@ -255,13 +255,23 @@ export class DsmHost {
     );
   }
 
-  async offer(displayName: string, scopes: pb.ConnectScopeV1[], anchors: Uint8Array[]): Promise<pb.ConnectAppOfferV1> {
+  /**
+   * An offer this account signs. `freeRequests` is how many requests that spend
+   * nothing the game asks to make over the session's life: the player's grant
+   * names it, and past it each request waits for the player (DSM SA-78).
+   */
+  async offer(
+    displayName: string,
+    scopes: pb.ConnectScopeV1[],
+    anchors: Uint8Array[],
+    freeRequests: number,
+  ): Promise<pb.ConnectAppOfferV1> {
     // The host names its own relay endpoint and certificate pin.
     const reply = this.connectReply(
       'connect.app.offer',
       await this.invoke(
         'connect.app.offer',
-        new pb.ConnectAppOfferRequestV1({ displayName, scopes, tokenAnchors: anchors }).toBinary(),
+        new pb.ConnectAppOfferRequestV1({ displayName, scopes, tokenAnchors: anchors, freeRequests }).toBinary(),
       ),
     );
     if (reply.case !== 'offer') throw new HostError(`connect.app.offer answered ${reply.case}`);

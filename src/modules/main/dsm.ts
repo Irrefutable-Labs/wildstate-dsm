@@ -24,6 +24,14 @@ import type { Economy, Login, Species } from '../../integrations/dsm/economy';
 import { COIN, ITEM_PRICES, SKIN_PRICE, MARKET, MARKET_VAULTS, TRAINER_REWARD, VICTORY_REWARD, WELCOME_COINS, entered, type ShopItem } from '../../integrations/dsm/terms';
 import * as pb from '../../integrations/dsm/proto/dsm_app_pb';
 
+/**
+ * The requests that spend nothing a player's grant lets the game make over the
+ * session's life (DSM SA-78): holdings checks, contact lookups, accepting what
+ * the game issues, and every move of a duel. The wallet's approval screen names
+ * it; past it each request waits for the player.
+ */
+const FREE_REQUESTS = 4096;
+
 /** The game's DSM account (`dsm-app-host`): the game does not run without it. */
 const DSM_HOST_URL: string | undefined = process.env.DSM_APP_HOST;
 /** The host's `<ingress-secret-dir>/ingress-token`: every call carries the secret it holds. */
@@ -485,7 +493,8 @@ export async function connectWallet(player: RpgPlayer, bound: (state: GameState)
       return [token, brought];
     }
     if (token !== null && brought !== undefined && brought.session !== null && held(brought)) return [token, brought];
-    const offer = await whenReachable(player, gui, () => shown, () => w.host.offer('Wildstate', scopes(w), [w.economy.wild]));
+    const offer = await whenReachable(player, gui, () => shown,
+      () => w.host.offer('Wildstate', scopes(w), [w.economy.wild], FREE_REQUESTS));
     const fresh = b32(globalThis.crypto.getRandomValues(new Uint8Array(32)));
     const login: Login = { offer: b32(offer.offerDigest), session: null };
     w.economy.record.resume[fresh] = login;
