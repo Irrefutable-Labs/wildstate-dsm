@@ -24,7 +24,7 @@ import {
 import { b32, fromB32 } from '../../integrations/dsm/host';
 import { anchorBytes } from '../../domain/program';
 import {
-  loadSetup, moveOf, openingOf, other, resign, resolveTurn, TURN_MS, type Match, type MatchEscrow, type Side,
+  holdSetup, loadSetup, moveOf, openingOf, other, resign, resolveTurn, TURN_MS, type Match, type MatchEscrow, type Side,
 } from '../../domain/match';
 import { b64, commitEntry, encodeMove, encodeSetup, resignEntry, revealEntry, unb64, type Bytes, type SetupSide } from '../../domain/program';
 
@@ -47,7 +47,7 @@ export interface StakedEvents {
 
 export function freshEscrow(nonce: Uint8Array): MatchEscrow {
   return {
-    nonce: b32(nonce), keys: { a: null, b: null }, a: null, b: null, cell: null, ready: null, start: 'open',
+    nonce: b32(nonce), keys: { a: null, b: null }, a: null, b: null, cell: null, ready: null, reveal: null, start: 'open',
     transcript: [], sealed: { a: null, b: null }, revealed: { a: null, b: null }, outcome: null, paid: false,
     refunded: { a: false, b: false }, problem: '',
   };
@@ -98,18 +98,21 @@ export async function lockMatch(m: Match, events: StakedEvents): Promise<void> {
   const e = m.escrow!;
   try {
     const nonce = fromB32(e.nonce);
-    const [keyA, keyB] = await Promise.all((['a', 'b'] as const).map((s) => sessionKey(online(m, s), nonce)));
-    e.keys = { a: b64(keyA), b: b64(keyB) };
+    // Each wallet names its session key and commits its start entropy for the match (SoFi S33).
+    const [named, namedB] = await Promise.all((['a', 'b'] as const).map((s) => sessionKey(online(m, s), nonce)));
+    e.keys = { a: b64(named.key), b: b64(namedB.key) };
     save(); events.changed(m);
-    const side = async (s: Side, key: Uint8Array): Promise<SetupSide> => {
+    const side = async (s: Side, wallet: { key: Uint8Array; commitment: Uint8Array }): Promise<SetupSide> => {
       const id = await walletIdentity(m[s].wallet);
       return {
-        genesis: id.genesis, deviceId: id.deviceId, sessionKey: key, poultice: m[s].items.poultice, tonic: m[s].items.tonic,
+        genesis: id.genesis, deviceId: id.deviceId, sessionKey: wallet.key, startCommitment: wallet.commitment,
+        poultice: m[s].items.poultice, tonic: m[s].items.tonic,
         team: await Promise.all(m[s].team.map((c) => publishedState(c))),
       };
     };
-    const setup = encodeSetup(nonce, await side('a', keyA), await side('b', keyB));
-    loadSetup(m, setup);
+    const setup = encodeSetup(nonce, await side('a', named), await side('b', namedB));
+    // No state before the Start: the tiebreak is derived from the entropy the Start opens.
+    holdSetup(m, setup);
     save();
     // Each wallet checks the other holds its team: B proves its own for A's lock, then A (after its lock) for B's.
     const team = (s: Side) => m[s].team.map((c) => anchorBytes(c));
@@ -127,22 +130,28 @@ export async function lockMatch(m: Match, events: StakedEvents): Promise<void> {
   await readyBoth(m, events);
 }
 
-/** A readies, the game relays its ready, B readies and writes the Start; the waiting wallet withdraws if the other never readies. */
+/**
+ * A readies and hands out its start entropy with its ready; the game relays both; B checks A's
+ * entropy opens A's commitment, readies and writes the Start with both. The waiting wallet
+ * withdraws if the other never readies. The program starts on both sides' entropy.
+ */
 async function readyBoth(m: Match, events: StakedEvents): Promise<void> {
   const { save } = await lobbyRecord();
   const e = m.escrow!;
   let waiting: Side = 'b';
   try {
-    const started = await within(READY_MS, (async () => {
-      if (!e.ready) {
+    const second = await within(READY_MS, (async () => {
+      if (!e.ready || !e.reveal) {
         const ready = await readyDuel(online(m, 'a'), e.cell!);
         e.ready = b64(ready.readySignature);
+        e.reveal = b64(ready.reveal);
         save(); events.changed(m);
       }
       waiting = 'a';
-      return (await readyDuel(online(m, 'b'), e.cell!, unb64(e.ready))).started;
+      return readyDuel(online(m, 'b'), e.cell!, { ready: unb64(e.ready), reveal: unb64(e.reveal) });
     })());
-    if (!started) throw new Error('B readied but no Start holds the match');
+    if (!second.started) throw new Error('B readied but no Start holds the match');
+    loadSetup(m, unb64(m.program.setup), { a: unb64(e.reveal!), b: second.reveal });
   } catch (err) {
     // The wallet left waiting withdraws: no stake waits on the other side's silence.
     await voidMatch(m, `${err instanceof Timeout ? `@${m[other(waiting)].name} did not ready in time` : message(err)}`, events, waiting);

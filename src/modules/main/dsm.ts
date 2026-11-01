@@ -1369,8 +1369,11 @@ export async function refreshContacts(player: RpgPlayer): Promise<void> {
   contactsOf.set(wallet, r.value.contacts.map((c) => b32(c.deviceId)));
 }
 
-/** `player`'s wallet's session public key for the match whose setup carries `nonce`. */
-export async function sessionKey(player: RpgPlayer, nonce: Bytes): Promise<Bytes> {
+/**
+ * `player`'s wallet's session public key for the match whose setup carries `nonce`, and its
+ * commitment to its start entropy for that match (SoFi S33), which the setup carries.
+ */
+export async function sessionKey(player: RpgPlayer, nonce: Bytes): Promise<{ key: Bytes; commitment: Bytes }> {
   const w = await world();
   const seq = await w.host.request(sessionOf(seatOf(player)), {
     case: 'duelSessionKey', value: new pb.ConnectDuelSessionKeyV1({ matchNonce: nonce }),
@@ -1378,7 +1381,7 @@ export async function sessionKey(player: RpgPlayer, nonce: Bytes): Promise<Bytes
   const s = await settle(player, seq, carried, 'Naming your battle key');
   const r = answered(s);
   if (r.case !== 'duelSessionKey') throw new Error(`the wallet answered ${r.case} for its battle key`);
-  return own(r.value.sessionPublicKey);
+  return { key: own(r.value.sessionPublicKey), commitment: own(r.value.startCommitment) };
 }
 
 /**
@@ -1435,19 +1438,28 @@ export async function lockDuel(
 }
 
 /**
- * Ask `player`'s wallet to ready for the match on `cell`: it verifies both vaults and signs its ready.
- * With the other side's ready, it writes the Start: `started` once the account read the Start there.
+ * Ask `player`'s wallet to ready for the match on `cell`: it verifies both vaults, signs its ready
+ * and hands out its start entropy with it. With the other side's ready and entropy, it checks that
+ * entropy opens the other side's commitment and writes the Start: `started` once the account read
+ * the Start there.
  */
-export async function readyDuel(player: RpgPlayer, cell: string, opponentReady?: Bytes): Promise<{ readySignature: Bytes; started: boolean }> {
+export async function readyDuel(
+  player: RpgPlayer, cell: string, opponent?: { ready: Bytes; reveal: Bytes },
+): Promise<{ readySignature: Bytes; reveal: Bytes; started: boolean }> {
   const w = await world();
   const seq = await w.host.request(sessionOf(seatOf(player)), {
-    case: 'duelReady', value: new pb.ConnectDuelReadyV1({ matchCell: fromB32(cell), opponentReady: opponentReady ?? new Uint8Array() }),
+    case: 'duelReady',
+    value: new pb.ConnectDuelReadyV1({
+      matchCell: fromB32(cell),
+      opponentReady: opponent?.ready ?? new Uint8Array(),
+      opponentReveal: opponent?.reveal ?? new Uint8Array(),
+    }),
   });
-  const second = opponentReady !== undefined;
+  const second = opponent !== undefined;
   const s = await settle(player, seq, (x) => (second ? x.fact === pb.ConnectFact.DUEL_STARTED : carried(x)), 'Readying for the match', undefined, second ? 'walk' : 'answer');
   const r = answered(s);
   if (r.case !== 'duelReady') throw new Error(`the wallet answered ${r.case} to its ready`);
-  return { readySignature: own(r.value.readySignature), started: s.fact === pb.ConnectFact.DUEL_STARTED };
+  return { readySignature: own(r.value.readySignature), reveal: own(r.value.reveal), started: s.fact === pb.ConnectFact.DUEL_STARTED };
 }
 
 /**

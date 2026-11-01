@@ -9364,6 +9364,15 @@ export class FaucetClaimantRecipientV1 extends Message<FaucetClaimantRecipientV1
    */
   claimantAttA = new Uint8Array(0);
 
+  /**
+   * The claimant's own signed directory entry (DeviceDirectoryEntryV1 bytes):
+   * its bytes prove the AK, under the recipient genesis, by P0-P6, and so
+   * decide the claimant's entitlement at the cell (SA-63).
+   *
+   * @generated from field: bytes claimant_directory_entry = 3;
+   */
+  claimantDirectoryEntry = new Uint8Array(0);
+
   constructor(data?: PartialMessage<FaucetClaimantRecipientV1>) {
     super();
     proto3.util.initPartial(data, this);
@@ -9374,6 +9383,7 @@ export class FaucetClaimantRecipientV1 extends Message<FaucetClaimantRecipientV1
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "claimant_public_key", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
     { no: 2, name: "claimant_att_a", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
+    { no: 3, name: "claimant_directory_entry", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FaucetClaimantRecipientV1 {
@@ -30741,6 +30751,14 @@ export class ConnectDuelReadyV1 extends Message<ConnectDuelReadyV1> {
    */
   opponentReady = new Uint8Array(0);
 
+  /**
+   * The other side's start entropy, handed out with its ready (SoFi Amendment
+   * S33); empty exactly when opponent_ready is.
+   *
+   * @generated from field: bytes opponent_reveal = 3;
+   */
+  opponentReveal = new Uint8Array(0);
+
   constructor(data?: PartialMessage<ConnectDuelReadyV1>) {
     super();
     proto3.util.initPartial(data, this);
@@ -30751,6 +30769,7 @@ export class ConnectDuelReadyV1 extends Message<ConnectDuelReadyV1> {
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "match_cell", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
     { no: 2, name: "opponent_ready", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
+    { no: 3, name: "opponent_reveal", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConnectDuelReadyV1 {
@@ -31989,6 +32008,14 @@ export class ConnectDuelSessionKeyResultV1 extends Message<ConnectDuelSessionKey
    */
   signatureAlg = 0;
 
+  /**
+   * H(DSM/escrow/start-commit/v1 ‖ r): the wallet's commitment to its start
+   * entropy for the match, which the setup carries (SoFi Amendment S33).
+   *
+   * @generated from field: bytes start_commitment = 3;
+   */
+  startCommitment = new Uint8Array(0);
+
   constructor(data?: PartialMessage<ConnectDuelSessionKeyResultV1>) {
     super();
     proto3.util.initPartial(data, this);
@@ -31999,6 +32026,7 @@ export class ConnectDuelSessionKeyResultV1 extends Message<ConnectDuelSessionKey
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "session_public_key", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
     { no: 2, name: "signature_alg", kind: "scalar", T: 13 /* ScalarType.UINT32 */ },
+    { no: 3, name: "start_commitment", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConnectDuelSessionKeyResultV1 {
@@ -32194,6 +32222,13 @@ export class ConnectDuelReadyResultV1 extends Message<ConnectDuelReadyResultV1> 
    */
   cells?: ConnectDuelCellsV1;
 
+  /**
+   * This wallet's start entropy, opened with its ready (SoFi Amendment S33).
+   *
+   * @generated from field: bytes reveal = 3;
+   */
+  reveal = new Uint8Array(0);
+
   constructor(data?: PartialMessage<ConnectDuelReadyResultV1>) {
     super();
     proto3.util.initPartial(data, this);
@@ -32204,6 +32239,7 @@ export class ConnectDuelReadyResultV1 extends Message<ConnectDuelReadyResultV1> 
   static readonly fields: FieldList = proto3.util.newFieldList(() => [
     { no: 1, name: "ready_signature", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
     { no: 2, name: "cells", kind: "message", T: ConnectDuelCellsV1 },
+    { no: 3, name: "reveal", kind: "scalar", T: 12 /* ScalarType.BYTES */ },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConnectDuelReadyResultV1 {
@@ -33765,6 +33801,22 @@ export class ConnectReplyV1 extends Message<ConnectReplyV1> {
      */
     value: ConnectDecidedV1;
     case: "decided";
+  } | {
+    /**
+     * connect.duelWithdraw / connect.duelSettle: the match's cells after
+     *
+     * @generated from field: dsm.ConnectDuelCellsV1 duel = 11;
+     */
+    value: ConnectDuelCellsV1;
+    case: "duel";
+  } | {
+    /**
+     * connect.duelCollect: each stake released to this wallet
+     *
+     * @generated from field: dsm.ConnectEscrowReleaseResultV1 released = 12;
+     */
+    value: ConnectEscrowReleaseResultV1;
+    case: "released";
   } | { case: undefined; value?: undefined } = { case: undefined };
 
   constructor(data?: PartialMessage<ConnectReplyV1>) {
@@ -33785,6 +33837,8 @@ export class ConnectReplyV1 extends Message<ConnectReplyV1> {
     { no: 8, name: "status", kind: "message", T: ConnectAppStatusV1, oneof: "reply" },
     { no: 9, name: "request", kind: "message", T: ConnectRequestRefV1, oneof: "reply" },
     { no: 10, name: "decided", kind: "message", T: ConnectDecidedV1, oneof: "reply" },
+    { no: 11, name: "duel", kind: "message", T: ConnectDuelCellsV1, oneof: "reply" },
+    { no: 12, name: "released", kind: "message", T: ConnectEscrowReleaseResultV1, oneof: "reply" },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConnectReplyV1 {
