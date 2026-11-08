@@ -23,6 +23,8 @@ const fixture = vi.hoisted(() => ({
   createAfter: 5,
   /** WILD transfers the account refuses before it sends again (it was restarting, say). */
   refuseWild: 0,
+  /** Transfers in flight: the account admits one economic step at a time, as DSM does. */
+  sending: 0,
   /** How long the wallet takes to pay, in ms (a payment past the grant waits for the player's approval). */
   payAfter: 5,
   /** Every price the account was asked for, as entered. */
@@ -50,7 +52,21 @@ vi.mock('../src/integrations/dsm/host', async (original) => {
     }, fixture.createAfter);
     // An object the account no longer holds is refused as a transfer still settling, which the game
     // retries: the once-a-second `wallet.sendSmart` loop seen live.
-    send = (to: Uint8Array, ticker: string, amount: string) => later(() => {
+    // A transfer started while another is in flight is refused, as a real account refuses it
+    // (2026-11-08: two welcome payments sent at once, the second refused and never paid).
+    send = async (to: Uint8Array, ticker: string, amount: string) => {
+      if (fixture.sending > 0) {
+        fixture.sends.push({ ticker, amount, to: base32(to), sent: false });
+        throw new Refusal('wallet.sendSmart: wallet.send: local state update failed: Invalid operation: advance: an economic admission is already pending — finish or resume it before starting another');
+      }
+      fixture.sending += 1;
+      try {
+        await this.sendOnce(to, ticker, amount);
+      } finally {
+        fixture.sending -= 1;
+      }
+    };
+    sendOnce = (to: Uint8Array, ticker: string, amount: string) => later(() => {
       const object = [...fixture.held.values()].find((h) => h.ticker === ticker);
       if (ticker === 'WILD' && fixture.refuseWild > 0) {
         fixture.refuseWild -= 1;
@@ -170,6 +186,18 @@ describe('the starting coin', () => {
     await idle();
     expect(fixture.sends.filter((s) => s.to === holder && s.ticker === 'WILD')).toEqual([{ ticker: 'WILD', amount: '10', to: holder, sent: true }]);
     expect(w.economy.record.welcomed.filter((x) => x === holder)).toHaveLength(1);
+  });
+
+  it('is paid to two wallets that connect at once, one transfer after the other, none refused', async () => {
+    const [one, two] = [await wallet(settled), await wallet(settled)];
+    await Promise.all([one.connect(`${one.holder}/page`), two.connect(`${two.holder}/page`)]);
+    await idle();
+    const wild = fixture.sends.filter((s) => s.ticker === 'WILD');
+    expect(wild).toHaveLength(2);
+    expect(wild).toEqual(expect.arrayContaining([
+      { ticker: 'WILD', amount: '10', to: one.holder, sent: true },
+      { ticker: 'WILD', amount: '10', to: two.holder, sent: true },
+    ]));
   });
 });
 

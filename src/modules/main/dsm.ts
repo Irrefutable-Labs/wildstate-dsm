@@ -759,10 +759,14 @@ async function sendFromGame(player: RpgPlayer, to: string, ticker: string, amoun
   const w = await world();
   for (let round = 0; ; round++) {
     try {
-      await w.host.send(fromB32(to), ticker, amount, memo);
+      // In turn with every other spend from the game's account: two players paid at once are two
+      // steps, one after the other (a real account, 2026-11-08: the second of two welcome
+      // payments sent at once was refused, and never paid).
+      await w.economy.inTurn(() => w.host.send(fromB32(to), ticker, amount, memo));
       return;
     } catch (e) {
-      const settling = e instanceof HostError && /not send-ready|pending online transition/.test(e.message);
+      const settling = e instanceof HostError
+        && /not send-ready|pending online transition|economic admission is already pending/.test(e.message);
       if (!settling || round >= 40) throw e;
       if (round === 0) web2(player, 'Waiting to send', 'The relationship with your wallet is settling a previous transfer', 'wait');
       // Take in the wallet's countersign now, as the account's inbox poller would.
