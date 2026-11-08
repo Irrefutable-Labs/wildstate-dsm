@@ -10,6 +10,9 @@ export default defineConfig(({ command }) => {
   if (command === 'serve' && !process.env.DSM_APP_HOST) {
     throw new Error('Wildstate runs on DSM: set DSM_APP_HOST to the game account host (dsm-app-host), e.g. http://127.0.0.1:8787');
   }
+  if (command === 'serve' && !process.env.DSM_APP_HOST_SECRET_FILE) {
+    throw new Error("Wildstate runs on DSM: set DSM_APP_HOST_SECRET_FILE to the game account host's <ingress-secret-dir>/ingress-token");
+  }
   return {
     // The version a game report quotes: the release build's (scripts set WILDSTATE_VERSION_NAME), else "dev".
     define: { __WILDSTATE_VERSION__: JSON.stringify(process.env.WILDSTATE_VERSION_NAME ?? 'dev') },

@@ -24,8 +24,18 @@ import type { Economy, Login, Species } from '../../integrations/dsm/economy';
 import { COIN, ITEM_PRICES, SKIN_PRICE, MARKET, MARKET_VAULTS, TRAINER_REWARD, VICTORY_REWARD, WELCOME_COINS, entered, type ShopItem } from '../../integrations/dsm/terms';
 import * as pb from '../../integrations/dsm/proto/dsm_app_pb';
 
+/**
+ * The requests that spend nothing a player's grant lets the game make over the
+ * session's life (DSM SA-78): holdings checks, contact lookups, accepting what
+ * the game issues, and every move of a duel. The wallet's approval screen names
+ * it; past it each request waits for the player.
+ */
+const FREE_REQUESTS = 4096;
+
 /** The game's DSM account (`dsm-app-host`): the game does not run without it. */
 const DSM_HOST_URL: string | undefined = process.env.DSM_APP_HOST;
+/** The host's `<ingress-secret-dir>/ingress-token`: every call carries the secret it holds. */
+const DSM_HOST_SECRET_FILE: string | undefined = process.env.DSM_APP_HOST_SECRET_FILE;
 const RECORD_PATH = process.env.DSM_GAME_RECORD ? process.env.DSM_GAME_RECORD : 'data/dsm-game.json';
 
 // ------------------------------- the overlay -------------------------------
@@ -83,9 +93,10 @@ function entry(lane: OverlayEntry['lane'], title: string, detail: string, tone: 
 
 export function world(): Promise<World> {
   if (!DSM_HOST_URL) return Promise.reject(new Error('the game was started without DSM_APP_HOST'));
+  if (!DSM_HOST_SECRET_FILE) return Promise.reject(new Error('the game was started without DSM_APP_HOST_SECRET_FILE'));
   if (!worldReady) {
     worldReady = (async () => {
-      const host = new DsmHost(DSM_HOST_URL as string);
+      const host = new DsmHost(DSM_HOST_URL as string, DSM_HOST_SECRET_FILE as string);
       const meta = await host.activity(0n);
       // Node only: the game's record lives on the game server's disk.
       const { Economy } = await import('../../integrations/dsm/economy');
@@ -482,7 +493,8 @@ export async function connectWallet(player: RpgPlayer, bound: (state: GameState)
       return [token, brought];
     }
     if (token !== null && brought !== undefined && brought.session !== null && held(brought)) return [token, brought];
-    const offer = await whenReachable(player, gui, () => shown, () => w.host.offer('Wildstate', scopes(w), [w.economy.wild]));
+    const offer = await whenReachable(player, gui, () => shown,
+      () => w.host.offer('Wildstate', scopes(w), [w.economy.wild], FREE_REQUESTS));
     const fresh = b32(globalThis.crypto.getRandomValues(new Uint8Array(32)));
     const login: Login = { offer: b32(offer.offerDigest), session: null };
     w.economy.record.resume[fresh] = login;
@@ -747,10 +759,14 @@ async function sendFromGame(player: RpgPlayer, to: string, ticker: string, amoun
   const w = await world();
   for (let round = 0; ; round++) {
     try {
-      await w.host.send(fromB32(to), ticker, amount, memo);
+      // In turn with every other spend from the game's account: two players paid at once are two
+      // steps, one after the other (a real account, 2026-11-08: the second of two welcome
+      // payments sent at once was refused, and never paid).
+      await w.economy.inTurn(() => w.host.send(fromB32(to), ticker, amount, memo));
       return;
     } catch (e) {
-      const settling = e instanceof HostError && /not send-ready|pending online transition/.test(e.message);
+      const settling = e instanceof HostError
+        && /not send-ready|pending online transition|economic admission is already pending/.test(e.message);
       if (!settling || round >= 40) throw e;
       if (round === 0) web2(player, 'Waiting to send', 'The relationship with your wallet is settling a previous transfer', 'wait');
       // Take in the wallet's countersign now, as the account's inbox poller would.
@@ -1357,8 +1373,11 @@ export async function refreshContacts(player: RpgPlayer): Promise<void> {
   contactsOf.set(wallet, r.value.contacts.map((c) => b32(c.deviceId)));
 }
 
-/** `player`'s wallet's session public key for the match whose setup carries `nonce`. */
-export async function sessionKey(player: RpgPlayer, nonce: Bytes): Promise<Bytes> {
+/**
+ * `player`'s wallet's session public key for the match whose setup carries `nonce`, and its
+ * commitment to its start entropy for that match (SoFi S33), which the setup carries.
+ */
+export async function sessionKey(player: RpgPlayer, nonce: Bytes): Promise<{ key: Bytes; commitment: Bytes }> {
   const w = await world();
   const seq = await w.host.request(sessionOf(seatOf(player)), {
     case: 'duelSessionKey', value: new pb.ConnectDuelSessionKeyV1({ matchNonce: nonce }),
@@ -1366,7 +1385,7 @@ export async function sessionKey(player: RpgPlayer, nonce: Bytes): Promise<Bytes
   const s = await settle(player, seq, carried, 'Naming your battle key');
   const r = answered(s);
   if (r.case !== 'duelSessionKey') throw new Error(`the wallet answered ${r.case} for its battle key`);
-  return own(r.value.sessionPublicKey);
+  return { key: own(r.value.sessionPublicKey), commitment: own(r.value.startCommitment) };
 }
 
 /**
@@ -1423,19 +1442,28 @@ export async function lockDuel(
 }
 
 /**
- * Ask `player`'s wallet to ready for the match on `cell`: it verifies both vaults and signs its ready.
- * With the other side's ready, it writes the Start: `started` once the account read the Start there.
+ * Ask `player`'s wallet to ready for the match on `cell`: it verifies both vaults, signs its ready
+ * and hands out its start entropy with it. With the other side's ready and entropy, it checks that
+ * entropy opens the other side's commitment and writes the Start: `started` once the account read
+ * the Start there.
  */
-export async function readyDuel(player: RpgPlayer, cell: string, opponentReady?: Bytes): Promise<{ readySignature: Bytes; started: boolean }> {
+export async function readyDuel(
+  player: RpgPlayer, cell: string, opponent?: { ready: Bytes; reveal: Bytes },
+): Promise<{ readySignature: Bytes; reveal: Bytes; started: boolean }> {
   const w = await world();
   const seq = await w.host.request(sessionOf(seatOf(player)), {
-    case: 'duelReady', value: new pb.ConnectDuelReadyV1({ matchCell: fromB32(cell), opponentReady: opponentReady ?? new Uint8Array() }),
+    case: 'duelReady',
+    value: new pb.ConnectDuelReadyV1({
+      matchCell: fromB32(cell),
+      opponentReady: opponent?.ready ?? new Uint8Array(),
+      opponentReveal: opponent?.reveal ?? new Uint8Array(),
+    }),
   });
-  const second = opponentReady !== undefined;
+  const second = opponent !== undefined;
   const s = await settle(player, seq, (x) => (second ? x.fact === pb.ConnectFact.DUEL_STARTED : carried(x)), 'Readying for the match', undefined, second ? 'walk' : 'answer');
   const r = answered(s);
   if (r.case !== 'duelReady') throw new Error(`the wallet answered ${r.case} to its ready`);
-  return { readySignature: own(r.value.readySignature), started: s.fact === pb.ConnectFact.DUEL_STARTED };
+  return { readySignature: own(r.value.readySignature), reveal: own(r.value.reveal), started: s.fact === pb.ConnectFact.DUEL_STARTED };
 }
 
 /**

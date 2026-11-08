@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { initialState, type Creature, type GameState } from '../src/domain/game';
 import type { Match } from '../src/domain/match';
+import { startCommitment } from '../src/domain/program';
 
 // The lobby as players drive it, two at a time. The DSM side is mocked: what is checked is which
 // matches the game makes and records, not what any wallet decides.
@@ -26,11 +27,13 @@ vi.mock('../src/modules/main/dsm', () => ({
   web2: vi.fn(),
   walletWaiting: () => null,
   walletIdentity: async (w: string) => ({ genesis: bytes32(`genesis|${w}`), deviceId: bytes32(`device|${w}`), signingKey: bytes32(`signing|${w}`) }),
-  sessionKey: async (p: { id: string }) => bytes32(`session|${p.id}`),
+  sessionKey: async (p: { id: string }) => ({ key: bytes32(`session|${p.id}`), commitment: startCommitment(bytes32(`entropy|${p.id}`)) }),
   publishedState: async (c: Creature) => { const { anchorBytes, creatureState } = await import('../src/domain/program'); return creatureState(c, anchorBytes(c)); },
   holdingsProof: async () => ({}),
   lockDuel: async (_p: unknown, _setup: unknown, side: string) => ({ vault: `vault-${side}`, cell: 'CELL' }),
-  readyDuel: async (_p: unknown, _cell: string, theirs?: Uint8Array) => ({ readySignature: new Uint8Array([1]), started: theirs !== undefined }),
+  readyDuel: async (p: { id: string }, _cell: string, theirs?: { ready: Uint8Array; reveal: Uint8Array }) => ({
+    readySignature: new Uint8Array([1]), reveal: bytes32(`entropy|${p.id}`), started: theirs !== undefined,
+  }),
   withdrawDuel: async () => 'withdrawn',
   signEntry: async (_p: unknown, _cell: string, _preceding: unknown, entry: Uint8Array) => ({ index: new DataView(entry.buffer, entry.byteOffset).getUint32(4), signature: new Uint8Array([2]) }),
   settleDuel: async (p: { id: string }) => {

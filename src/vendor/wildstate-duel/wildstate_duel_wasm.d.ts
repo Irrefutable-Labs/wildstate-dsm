@@ -15,8 +15,10 @@ export function birthCreatureState(anchor: Uint8Array, species: number): Uint8Ar
 export function commitEntry(index: number, side: string, salt: Uint8Array, played: Uint8Array): Uint8Array;
 
 /**
- * The frozen vectors as setups under this program:
- * `[{ label, setup, turns, winner, end, finalState }]`.
+ * The frozen vectors: each as the setup a staked match locks under this
+ * program and both sides' start entropy (`startState`), and as the match the
+ * rules play (`startMatch`):
+ * `[{ label, setup, revealA, revealB, match, turns, opened, winner, end, finalState }]`.
  */
 export function conformanceVectors(): Array<any>;
 
@@ -44,9 +46,11 @@ export function encodeCreatureState(c: any): Uint8Array;
 export function encodeMove(mv: any): Uint8Array;
 
 /**
- * The canonical setup bytes of `{ program, matchNonce, turnCap, tiebreakSeed,
- * a, b }`; a side is `{ genesis, deviceId, sessionPublicKey, poultice, tonic,
- * team }` and a creature `{ anchor, species, xp, hp, charges }`.
+ * The canonical setup bytes of `{ program, matchNonce, turnCap,
+ * startCommitmentA, startCommitmentB, a, b }`; a side is `{ genesis,
+ * deviceId, sessionPublicKey, poultice, tonic, team }` and a creature `{
+ * anchor, species, xp, hp, charges }`. Each start commitment is the one its
+ * side's wallet answered with its session key (SoFi Amendment S33).
  */
 export function encodeSetup(setup: any): Uint8Array;
 
@@ -69,7 +73,7 @@ export function moveCommitment(salt: Uint8Array, played: Uint8Array): Uint8Array
 /**
  * The decided result of a complete transcript: `{ winner, end, turns }`.
  */
-export function outcome(setup: Uint8Array, turns: Array<any>): any;
+export function outcome(setup: Uint8Array, reveal_a: Uint8Array, reveal_b: Uint8Array, turns: Array<any>): any;
 
 /**
  * The canonical bytes of the move an opening plays: the move it is the
@@ -82,7 +86,7 @@ export function programHash(): Uint8Array;
 /**
  * Every turn's log of a transcript (which may stop before the match is decided).
  */
-export function replay(setup: Uint8Array, turns: Array<any>): Array<any>;
+export function replay(setup: Uint8Array, reveal_a: Uint8Array, reveal_b: Uint8Array, turns: Array<any>): Array<any>;
 
 /**
  * Transcript entry `index`: `side` resigns.
@@ -95,9 +99,23 @@ export function resignEntry(index: number, side: string): Uint8Array;
 export function revealEntry(index: number, side: string, salt: Uint8Array, played: Uint8Array): Uint8Array;
 
 /**
- * The state before turn 0 of a setup that pins this program.
+ * The start commitment to a side's 32-byte start entropy
+ * (`wildstate_duel::start_commitment`): what a setup carries for a side whose
+ * entropy is not a wallet's, as in a match with no stake.
  */
-export function startState(setup: Uint8Array): Uint8Array;
+export function startCommitment(reveal: Uint8Array): Uint8Array;
+
+/**
+ * The state before turn 0 of a match the rules play directly, as a
+ * conformance vector holds it.
+ */
+export function startMatch(m: Uint8Array): Uint8Array;
+
+/**
+ * The state before turn 0 of a setup that pins this program, started on
+ * both sides' start entropy as the match's Start opened it.
+ */
+export function startState(setup: Uint8Array, reveal_a: Uint8Array, reveal_b: Uint8Array): Uint8Array;
 
 /**
  * The state digest of kept state bytes.
@@ -127,10 +145,11 @@ export function tablesDigestOf(ccb: Uint8Array): Uint8Array;
 export function tablesEncoding(): Uint8Array;
 
 /**
- * The tiebreak seed a staked match's setup commits, from its nonce and both
- * sides' session public keys (`wildstate_duel::tiebreak_seed`).
+ * A staked match's tiebreak seed, from its nonce, both sides' start entropy
+ * as the Start opened it and both sides' session public keys
+ * (`wildstate_duel::tiebreak_seed`).
  */
-export function tiebreakSeed(match_nonce: Uint8Array, session_a: Uint8Array, session_b: Uint8Array): Uint8Array;
+export function tiebreakSeed(match_nonce: Uint8Array, reveal_a: Uint8Array, reveal_b: Uint8Array, session_a: Uint8Array, session_b: Uint8Array): Uint8Array;
 
 /**
  * The turn's canonical bytes the rules play from both sides' openings,

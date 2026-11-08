@@ -126,8 +126,13 @@ export class Economy {
    */
   private accountTurn: Promise<unknown> = Promise.resolve();
 
-  /** Run `op` once every account operation queued before it is done. */
-  private inTurn<T>(op: () => Promise<T>): Promise<T> {
+  /**
+   * Run `op` once every account operation queued before it is done. The account admits one
+   * economic step at a time (DSM refuses a second while one is pending: "an economic admission is
+   * already pending"), so everything that spends from it, a token created or a transfer sent,
+   * runs in turn.
+   */
+  inTurn<T>(op: () => Promise<T>): Promise<T> {
     const run = this.accountTurn.then(op, op);
     this.accountTurn = run.then(
       () => undefined,
