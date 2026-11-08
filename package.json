@@ -6,6 +6,7 @@
     "build": "RPG_TYPE=mmorpg vite build",
     "build:server": "node scripts/bundle-server.mjs",
     "test": "vitest run",
+    "test:dsm": "vitest run --config vitest.dsm.config.ts",
     "typecheck": "vue-tsc --noEmit",
     "proto:gen": "protoc --plugin=protoc-gen-es=./node_modules/.bin/protoc-gen-es --es_out=import_extension=.js:./src/integrations/dsm/proto --es_opt=target=ts -I ${DSM_PROTO_DIR:-../dsm/proto} ${DSM_PROTO_DIR:-../dsm/proto}/dsm_app.proto",
     "art:pack-walks": "node scripts/pack-character-walks.mjs",
