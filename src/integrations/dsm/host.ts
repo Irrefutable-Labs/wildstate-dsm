@@ -86,8 +86,18 @@ export class DsmHost {
   private async authorization(): Promise<string> {
     // Node only: the secret lives on the game server's disk.
     const { readFile } = await import('node:fs/promises');
-    const secret = (await readFile(this.secretFile, 'utf8')).trim();
-    if (secret.length === 0) throw new HostError(`${this.secretFile} holds no ingress secret`);
+    let secret = '';
+    try {
+      secret = (await readFile(this.secretFile, 'utf8')).trim();
+    } catch (e) {
+      // The path and the file system's words stay on the server's own log; a player sees only that the account is unreachable.
+      console.error(`[dsm] the ingress secret file could not be read: ${this.secretFile}: ${String(e)}`);
+      throw new HostError('the game account ingress secret is unavailable');
+    }
+    if (secret.length === 0) {
+      console.error(`[dsm] the ingress secret file is empty: ${this.secretFile}`);
+      throw new HostError('the game account ingress secret is unavailable');
+    }
     return `Bearer ${secret}`;
   }
 
