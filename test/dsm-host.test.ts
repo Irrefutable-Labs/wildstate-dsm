@@ -59,7 +59,7 @@ describe("the game reaches its account with the host's ingress secret", () => {
     const secretFile = join(dir, 'ingress-token');
     try {
       await writeFile(secretFile, '');
-      await expect(new DsmHost('http://127.0.0.1:9', secretFile).activity(0n)).rejects.toThrow('holds no ingress secret');
+      await expect(new DsmHost('http://127.0.0.1:9', secretFile).activity(0n)).rejects.toThrow('ingress secret is unavailable');
     } finally {
       await rm(dir, { recursive: true });
     }
