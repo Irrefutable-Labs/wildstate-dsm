@@ -699,6 +699,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 type Pace = 'answer' | 'sync' | 'walk';
 const SETTLE_DEADLINE_MS = 6 * 60_000;
+/** A request unanswered for this long is waiting on a wallet that is not running; the player is told to open it. */
+const STALLED_AFTER_MS = 8_000;
 function pause(pace: Pace, elapsed: number): number {
   if (pace === 'walk') return 1000;
   if (pace === 'sync') return 1000;
@@ -739,6 +741,17 @@ async function settle(
         saidWaiting = true;
         seat.waiting = `${what}${s.reason ? `: ${s.reason}` : ''}`;
         web2(player, `${what}: waiting for you`, 'Past what you approved: approve or decline it in your DSM wallet (Apps → Waiting)', 'wait');
+        player.getGui('field-hud')?.update(hudData(player));
+        onWaiting?.();
+      }
+      // A wallet that has not even answered after this long is not running: on a phone the
+      // wallet app is behind the game and the system has paused it. The same banner the
+      // approval case shows sends the player to the wallet, which does the work the moment
+      // it is in front (measured 2026-11-10: 13 s with the wallet running, minutes without).
+      if (!saidWaiting && !s.answered && Date.now() - began >= STALLED_AFTER_MS) {
+        saidWaiting = true;
+        seat.waiting = `${what}: your wallet has not answered yet`;
+        web2(player, `${what}: open your wallet`, 'Your DSM wallet answers while it is open: switch to it for a moment and this completes', 'wait');
         player.getGui('field-hud')?.update(hudData(player));
         onWaiting?.();
       }
@@ -1042,9 +1055,18 @@ function proveLater(player: RpgPlayer): void {
   const key = seat.wallet ?? `seat/${player.id}`;
   if (proofsQueued.has(key)) return;
   proofsQueued.add(key);
-  enqueue(player, 'Proving your holdings', () => {
+  enqueue(player, 'Proving your holdings', async () => {
     proofsQueued.delete(key);
-    return refreshHoldings(player);
+    try {
+      await refreshHoldings(player);
+    } catch (e) {
+      // A page that came back before its wallet session did: the proof is asked again once
+      // the session is there, instead of the shop staying at 0 WILD until the next action.
+      if (e instanceof Error && /reconnecting/.test(e.message) && seats.has(player.id)) {
+        setTimeout(() => { if (seats.has(player.id)) proveLater(player); }, 3000);
+      }
+      throw e;
+    }
   });
 }
 /** Wallets with a holdings proof queued that has not started yet. */
