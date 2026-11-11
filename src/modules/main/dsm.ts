@@ -912,7 +912,7 @@ async function buyItem(player: RpgPlayer, item: ShopItem, n: number): Promise<vo
   // The wallet paid: show the WILD the next proof will confirm, so the board does not lag behind the purchase.
   if (seat.coins !== null) seat.coins -= cost;
   pushEntries(seat, [entry('dsm', `${what} paid: ${wildText(cost)}`, 'Granted on the transfer the game account accepted, never on the wallet\'s word', 'ok', Date.now() - started)]);
-  shopShow(player, { busy: false, status: `${what} in your bag · ${wildText(cost)} paid from your wallet`, say: BRAMBLE.bought, delta: `-${cost}`, deltaAt: Date.now() });
+  shopShow(player, { busy: false, status: `${what} in your bag · your wallet sent ${wildText(cost)}`, say: BRAMBLE.bought, delta: `-${cost}`, deltaAt: Date.now() });
   player.getGui('field-hud')?.update(hudData(player));
   proveLater(player);
 }
@@ -934,7 +934,7 @@ async function buySkin(player: RpgPlayer, skin: Skin): Promise<void> {
   commit(player, { type: 'grant-skin', skin, fact: new TextDecoder().decode(paid.paidTx) });
   if (seat.coins !== null) seat.coins -= SKIN_PRICE;
   pushEntries(seat, [entry('dsm', `${SKIN_NAMES[skin]} skin paid: ${wildText(SKIN_PRICE)}`, 'Granted on the transfer the game account accepted, never on the wallet\'s word', 'ok', Date.now() - started)]);
-  shopShow(player, { busy: false, status: `${SKIN_NAMES[skin]} skin in your bag · ${wildText(SKIN_PRICE)} paid from your wallet`, say: BRAMBLE.skin, delta: `-${SKIN_PRICE}`, deltaAt: Date.now() });
+  shopShow(player, { busy: false, status: `${SKIN_NAMES[skin]} skin in your bag · your wallet sent ${wildText(SKIN_PRICE)}`, say: BRAMBLE.skin, delta: `-${SKIN_PRICE}`, deltaAt: Date.now() });
   player.getGui('field-hud')?.update(hudData(player));
   proveLater(player);
 }
@@ -1015,7 +1015,7 @@ function shopTask(player: RpgPlayer, title: string, task: () => Promise<void>): 
 /** Bramble's Trading Post, open until the player leaves it. */
 export async function openShop(player: RpgPlayer): Promise<void> {
   if (!seatOf(player).session) return;
-  shopViews.set(player.id, { ...quietShop(), status: 'Prices in WILD, paid from your DSM wallet' });
+  shopViews.set(player.id, { ...quietShop(), status: 'Prices in WILD, which your DSM wallet sends' });
   const gui = player.gui('bramble-shop');
   gui.on<{ action: string; item?: string; qty?: number; creatureId?: string; skin?: string }>('shop', ({ action, item, qty, creatureId, skin }) => {
     if (action === 'leave') { gui.close(); return; }
