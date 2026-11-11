@@ -96,6 +96,18 @@ Measured on Samsung A16s against the beta storage fleet of the time:
 
 A creature the game gave stays in the party, marked as on its way, until an owns proof shows the wallet owns it.
 
+## What it took on DSM main (2026-11-11)
+
+A fresh game account on DSM main's `dsm-app-host` (`e3f9b3fcd`), with DSM's terminal wallet (`make dev-wallet`) as the player, both on the beta network's storage set, the game in headless Chrome:
+
+- setting the account up: 13 faucet claims of 100 ERA, 4.3–6.2 s each; WILD issued in 2.1 s; the five vaults funded in 2.2–3.3 s each;
+- connect: the terminal wallet read and approved the offer (50,522 signed bytes) in 2 s;
+- the starter creature issued and given as an object: 13.2 s; the welcome 10 WILD: 9.3 s, one retry while the previous transfer settled;
+- an owns proof: 0.5–2.1 s;
+- a capsule for 3 WILD, granted on the payment the account accepted: 12.2 s; nine poultices for 36 WILD in one payment: 16.6 s;
+- a caught creature issued and given as an object: 7.2 s;
+- a price over the market's vaults: about 2 s; a trade of 1.00 ERA for 49 WILD under the grant, realized: 12.6 s.
+
 ## Not built
 
 - Several game servers sharing one account.
