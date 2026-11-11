@@ -794,7 +794,7 @@ async function sendFromGame(player: RpgPlayer, to: string, ticker: string, amoun
   }
 }
 
-/** A caught creature becomes a state object in the player's wallet. */
+/** A caught creature becomes an object in the player's wallet. */
 async function deliverCreature(player: RpgPlayer, creatureId: string, species: Species): Promise<void> {
   const w = await world();
   const started = Date.now();
@@ -860,7 +860,7 @@ async function handOver(player: RpgPlayer, anchor: string, started = Date.now())
   w.economy.record.inFlight[wallet] = [...(w.economy.record.inFlight[wallet] ?? []), anchor];
   w.economy.save();
   pushEntries(seat, [
-    entry('dsm', `${SPECIES[species].name} #${issued.serial} delivered`, `State object ${short(anchor)}: supply 1, issued by the game account, now in wallet ${short(wallet)}`, 'ok', Date.now() - started),
+    entry('dsm', `${SPECIES[species].name} #${issued.serial} delivered`, `Object ${short(anchor)}: supply 1, issued by the game account, now in wallet ${short(wallet)}`, 'ok', Date.now() - started),
   ]);
   proveLater(player);
 }
@@ -871,7 +871,7 @@ const handingOver = new Set<string>();
 async function payReward(player: RpgPlayer, to: string, amount: bigint, why: string): Promise<void> {
   const started = Date.now();
   await sendFromGame(player, to, COIN.ticker, String(amount), why);
-  pushEntries(seatOf(player), [entry('dsm', `${why[0].toUpperCase()}${why.slice(1)}: ${wildText(amount)}`, 'An online transfer from the game account to your wallet', 'ok', Date.now() - started)]);
+  pushEntries(seatOf(player), [entry('dsm', `${why[0].toUpperCase()}${why.slice(1)}: ${wildText(amount)}`, 'The game account gave it to your wallet, online', 'ok', Date.now() - started)]);
   proveLater(player);
 }
 
@@ -940,7 +940,7 @@ async function buySkin(player: RpgPlayer, skin: Skin): Promise<void> {
 }
 
 /**
- * A creature for Bramble: its state object moves from the wallet to the game's account, then
+ * A creature for Bramble: its object goes from the wallet to the game's account, then
  * the game's account pays for it. The grant covers paying WILD, not handing over a creature,
  * so the wallet asks the player on the phone; the sale counts once the account accepted the object.
  */
@@ -971,7 +971,7 @@ async function sellCreature(player: RpgPlayer, creatureId: string): Promise<void
   commit(player, { type: 'sell', creatureId, fact: new TextDecoder().decode(paid.paidTx) });
   shopShow(player, { status: `${name} is Bramble’s now · paying ${wildText(price)}…` });
   await payOwed(player, wallet);
-  pushEntries(seat, [entry('dsm', `Sold ${name}: ${wildText(price)}`, `Its state object ${short(anchor)} reached the game account, which paid for it`, 'ok', Date.now() - started)]);
+  pushEntries(seat, [entry('dsm', `Sold ${name}: ${wildText(price)}`, `Its object ${short(anchor)} reached the game account, which paid for it`, 'ok', Date.now() - started)]);
   shopShow(player, { busy: false, status: `${name} sold · ${wildText(price)} on its way to your wallet`, say: BRAMBLE.sold, delta: `+${price}`, deltaAt: Date.now() });
   player.getGui('field-hud')?.update(hudData(player));
   proveLater(player);
@@ -1035,7 +1035,7 @@ export async function openShop(player: RpgPlayer): Promise<void> {
     }
     if (action === 'sell' && creatureId) {
       shopShow(player, { busy: true, say: '', status: 'Asking your wallet to hand the creature to Bramble…' });
-      web2(player, 'Bramble’s board', 'A sale: the creature’s state object goes to the game account, which pays for it');
+      web2(player, 'Bramble’s board', 'A sale: the creature’s object goes to the game account, which pays for it');
       shopTask(player, 'Selling a creature', () => sellCreature(player, creatureId));
     }
   });
@@ -1198,7 +1198,7 @@ export function onCommitted(player: RpgPlayer, command: Command, before: GameSta
   }
   if (finished && battle!.outcome === 'captured') {
     const caught = after.creatures[after.creatures.length - 1];
-    web2(player, 'Captured', `${displayName(caught)} joins your party: the game issues it as a state object in your wallet`);
+    web2(player, 'Captured', `${displayName(caught)} joins your party: the game issues it as an object in your wallet`);
     enqueue(player, 'Delivering the creature', () => deliverCreature(player, caught.id, caught.species));
   }
 }
