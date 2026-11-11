@@ -1,7 +1,7 @@
 import type { Readiness } from '../gameServer';
 import { logo } from './logo';
 
-const RELEASES = 'https://github.com/cryptskii/wildstate-dsm/releases/latest';
+const RELEASES = 'https://github.com/Irrefutable-Labs/wildstate-dsm/releases/latest';
 /** The Android app serves its bundled client from WebViewAssetLoader's origin. */
 const inApp = () => window.location.hostname === 'appassets.androidplatform.net';
 
