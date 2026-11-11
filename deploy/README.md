@@ -13,7 +13,7 @@ The public frontend is https://wildstate-dsm.vercel.app/ and the repository is h
   ingress/               # mode 700, uid/gid 10001: the account host's ingress secret alone; the game mounts only this, read-only
   game/                  # mode 700, uid/gid 10001
     dsm-game.json        # game profiles, WILD policy and vault references; Web2 data
-    rooms.sqlite         # RPGJS room/session state
+    rooms.sqlite         # no longer written: RPGJS room state stays in memory (scripts/server.mjs, since 2026-10-08)
   network/
     dsm_env_config.toml   # the pinned beta storage set: DSM main's dsm_client/frontend/public/dsm_env_config.toml, each member's CA inside it
   https-data/            # root-owned, mode 700: HTTPS certificates
