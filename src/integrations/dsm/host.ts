@@ -171,7 +171,7 @@ export class DsmHost {
     return payload.value;
   }
 
-  /** A token of the game's: its whole supply is the game account's at creation. */
+  /** An object the game issues (`token.create`): its whole supply is the game account's at first. */
   async createToken(args: {
     ticker: string;
     alias: string;
@@ -257,7 +257,7 @@ export class DsmHost {
     return payload.value;
   }
 
-  /** An online transfer from the game's account (`wallet.sendSmart`). */
+  /** The game's account gives a wallet an object, online (`wallet.sendSmart`). */
   async send(to: Bytes, ticker: string, amount: string, memo: string): Promise<void> {
     await this.invoke(
       'wallet.sendSmart',
@@ -330,7 +330,7 @@ export class DsmHost {
     return payloadOf.value;
   }
 
-  /** What the account established about request `seq`. `recorded` puts the check in the record. */
+  /** The result of request `seq`: what the account established about it. `recorded` puts the check in the record. */
   async status(sessionId: Bytes, seq: bigint, recorded = false): Promise<pb.ConnectAppStatusV1> {
     const reply = this.connectReply(
       'connect.app.status',

@@ -10,8 +10,8 @@
  *
  * Each turn, each player's choice is sealed by their own wallet (a Commit entry), and once both
  * are sealed each wallet reveals its own; the game relays every signed entry to the other wallet,
- * which checks it before it signs its next. The turn is then resolved by the same program the
- * escrow runs. Escaping is a Resign. A player whose turn timer runs out while connected has their
+ * which checks it before it signs its next. The turn is then resolved by the same program that
+ * settles the stakes. Escaping is a Resign. A player whose turn timer runs out while connected has their
  * own wallet sign a pass; a player who is away freezes the match until they come back (owner
  * ruling: no clock decides a staked match). At the end the winner's wallet settles the transcript
  * at the match cell and collects both stakes.
@@ -327,7 +327,7 @@ export function advance(m: Match, events: StakedEvents): Promise<void> {
 
 /**
  * `side` resigns: its own wallet signs a Resign, and the program gives the other side the win. The
- * other side's move of this turn counts only if it was revealed, as the escrow reads it.
+ * other side's move of this turn counts only if it was revealed, as the settlement reads it.
  */
 export function resignStaked(m: Match, side: Side, events: StakedEvents): Promise<void> {
   return queued(m, async () => {

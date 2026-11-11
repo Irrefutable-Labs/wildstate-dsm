@@ -26,7 +26,7 @@ import {
 import { createHash, randomBytes } from 'node:crypto';
 import { rate } from '../../domain/rating';
 
-/** Stakes are escrowed on DSM and decided by the program (S22): each wallet locks its own, and the winner's collects both. */
+/** Stakes are locked on DSM and the program decides the match (S22): each wallet locks its own, and the winner's collects both. */
 const WAGERS_OPEN = true;
 const stakeOpen = (stake: number) => validStake(stake) && (stake === 0 || WAGERS_OPEN);
 const CHALLENGE_MS = 120_000;
@@ -182,7 +182,7 @@ export async function openLobby(player: RpgPlayer): Promise<void> {
       case 'challenge': {
         const to = String(d.to ?? ''), stake = Number(d.stake ?? 0);
         if (!validStake(stake)) say('Name a whole amount of WILD.');
-        else if (!stakeOpen(stake)) say('Wagers open once escrow locking is in the DSM wallet.');
+        else if (!stakeOpen(stake)) say('Staked matches open once the DSM wallet can lock a stake.');
         else if (to === wallet || !playerOfWallet(to)) say('That player is not online.');
         else if (pvpTeam(session(player).read()).length === 0) say('Heal a creature first: your team has none standing.');
         else if (liveOf.has(to) || liveOf.has(wallet)) say('One of you is already in a match.');
@@ -206,7 +206,7 @@ export async function openLobby(player: RpgPlayer): Promise<void> {
       case 'queue': {
         const stake = Number(d.stake ?? 0);
         if (!(STAKE_TIERS as readonly number[]).includes(stake)) { say('Pick one of the matchmaker stakes.'); break; }
-        if (!stakeOpen(stake)) { say('Wagers open once escrow locking is in the DSM wallet.'); break; }
+        if (!stakeOpen(stake)) { say('Staked matches open once the DSM wallet can lock a stake.'); break; }
         if (pvpTeam(session(player).read()).length === 0) { say('Heal a creature first: your team has none standing.'); break; }
         queue.set(wallet, { wallet, rating: (dir.players[wallet] ?? freshProfile()).rating, stake, since: Date.now() });
         break;

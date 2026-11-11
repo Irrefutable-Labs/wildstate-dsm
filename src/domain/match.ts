@@ -5,7 +5,7 @@
  *
  * Every turn is resolved by the staked-match program (src/domain/program.ts: DSM's
  * `wildstate-duel`, compiled to WebAssembly), free matches and staked ones alike, so what a screen
- * shows is exactly what an escrow settles. The match keeps the setup's bytes, the program's state
+ * shows is exactly what a staked match settles. The match keeps the setup's bytes, the program's state
  * after the last turn and every turn's openings; the teams, log and events here are views of
  * those for the screens. Each team is a snapshot of the creatures as the player prepared them
  * (HP and charges, so healing and charging beforehand matters); the match never writes back to
@@ -62,7 +62,7 @@ export interface Match {
   reason: MatchReason | null;
   /** What the program decides the match from (Base64 of canonical bytes). */
   program: MatchProgram;
-  /** A staked match's escrow on DSM (src/modules/main/staked.ts). */
+  /** A staked match's stakes on DSM (src/modules/main/staked.ts). */
   escrow?: MatchEscrow;
 }
 
@@ -71,7 +71,7 @@ export interface SignedEntry { side: Side; entry: string; signature: string }
 /** A move sealed (committed) and not yet revealed: the salt and the opening its commitment hides. */
 export interface Sealed { salt: string; opening: string }
 /**
- * A staked match's escrow, decided by the program (SoFi S22): each player's stake is locked in its
+ * A staked match's stakes, decided by the program (SoFi S22): each player's stake is locked in its
  * own vault on the match cell both setups bind; the wallets ready, sign each entry of the
  * transcript, and the winner's wallet settles the transcript at the match cell and collects. No
  * one signs a verdict. The game only relays and records what its account saw (Web2 record).
