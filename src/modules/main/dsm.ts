@@ -36,7 +36,11 @@ const FREE_REQUESTS = 4096;
 const DSM_HOST_URL: string | undefined = process.env.DSM_APP_HOST;
 /** The host's `<ingress-secret-dir>/ingress-token`: every call carries the secret it holds. */
 const DSM_HOST_SECRET_FILE: string | undefined = process.env.DSM_APP_HOST_SECRET_FILE;
-const RECORD_PATH = process.env.DSM_GAME_RECORD ? process.env.DSM_GAME_RECORD : 'data/dsm-game.json';
+/**
+ * The game's own record, as named when the world is set up: the production server names it
+ * (WILDSTATE_DATA_DIR/dsm-game.json) only after this module has loaded.
+ */
+const recordPath = (): string => process.env.DSM_GAME_RECORD || 'data/dsm-game.json';
 
 // ------------------------------- the overlay -------------------------------
 
@@ -100,7 +104,7 @@ export function world(): Promise<World> {
       const meta = await host.activity(0n);
       // Node only: the game's record lives on the game server's disk.
       const { Economy } = await import('../../integrations/dsm/economy');
-      const economy = new Economy(host, RECORD_PATH, b32(meta.deviceId));
+      const economy = new Economy(host, recordPath(), b32(meta.deviceId));
       await economy.eraRow();
       await economy.setUp((line) => {
         const e = entry('dsm', 'Setting up the game account', line, 'wait');
