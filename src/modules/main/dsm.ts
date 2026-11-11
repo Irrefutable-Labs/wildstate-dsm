@@ -27,8 +27,8 @@ import * as pb from '../../integrations/dsm/proto/dsm_app_pb';
 
 /**
  * The requests that spend nothing a player's grant lets the game make over the
- * session's life (DSM SA-78): holdings checks, contact lookups, accepting what
- * the game issues, and every move of a duel. The wallet's approval screen names
+ * connection's life (DSM SA-78): proofs of what the wallet owns, contact lookups,
+ * accepting what the game issues, and every move of a match. The wallet's approval screen names
  * it; past it each request waits for the player.
  */
 const FREE_REQUESTS = 4096;

@@ -267,7 +267,7 @@ export class DsmHost {
 
   /**
    * An offer this account signs. `freeRequests` is how many requests that spend
-   * nothing the game asks to make over the session's life: the player's grant
+   * nothing the game asks to make over the connection's life: the player's grant
    * names it, and past it each request waits for the player (DSM SA-78).
    */
   async offer(
