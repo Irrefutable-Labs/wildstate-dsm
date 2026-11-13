@@ -45,7 +45,7 @@ export const player: RpgPlayerHooks = {
     }, reason).catch((e) => {
       player.gui('dsm-connect').update({ code: '', status: `Connecting failed: ${e instanceof Error ? e.message : String(e)}` });
     });
-    // No wallet, no game: a wallet that ends its session with the game (from its own Apps screen)
+    // No wallet, no game: a wallet that ends its connection with the game (from its own Apps screen)
     // sends the page back to the connect screen, whatever it was doing.
     watchWallet(player, () => {
       if (!player.isConnected()) return;
@@ -57,8 +57,8 @@ export const player: RpgPlayerHooks = {
     });
     if (player.creatureSave()) {
       // The page came back with its game loaded (from the wallet app, or after a dropped
-      // connection). Its wallet session comes back from the game's account before anything asks
-      // the wallet for something; only a wallet with no session left connects afresh.
+      // connection). Its wallet connection comes back from the game's account before anything asks
+      // the wallet for something; only a wallet with no connection left connects afresh.
       const holder: string = JSON.parse(player.creatureSave()).holder;
       activateAvatar(player, holder);
       fieldHud(player);

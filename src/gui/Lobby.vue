@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * The arena lobby: pick a name, wait for the matchmaker, or challenge a friend by username or DSM
- * ID. Every number here is the server's. Your DSM identity is who you are; your username is how
+ * ID. Every number here is the server's. Your DSM passport is who you are; your username is how
  * friends find you, and changing it keeps your rating and history.
  */
 import { computed, inject, onMounted, onUnmounted, ref } from 'vue';
@@ -91,8 +91,8 @@ async function copyId() { await navigator.clipboard.writeText(props.me.id); copi
       <div v-if="liveMatch?.locking" class="card live locking">
         <b>Locking stakes · {{ wild(liveMatch.stake) }} each vs @{{ liveMatch.opponent.name }}</b>
         <small><i class="tick" :class="{ on: liveMatch.locking.keys }"></i>{{ liveMatch.locking.keys ? 'Both wallets named their battle keys' : 'Your wallets are naming their battle keys…' }}</small>
-        <small><i class="tick" :class="{ on: liveMatch.locking.mine }"></i>Your stake {{ liveMatch.locking.mine ? 'locked in escrow' : 'locking… your wallet checks both teams first; if it asks, approve it there' }}</small>
-        <small><i class="tick" :class="{ on: liveMatch.locking.theirs }"></i>@{{ liveMatch.opponent.name }}'s stake {{ liveMatch.locking.theirs ? 'locked in escrow' : liveMatch.locking.mine ? 'locking…' : 'locks after yours' }}</small>
+        <small><i class="tick" :class="{ on: liveMatch.locking.mine }"></i>Your stake {{ liveMatch.locking.mine ? 'locked for the match' : 'locking… your wallet checks both teams first; if it asks, approve it there' }}</small>
+        <small><i class="tick" :class="{ on: liveMatch.locking.theirs }"></i>@{{ liveMatch.opponent.name }}'s stake {{ liveMatch.locking.theirs ? 'locked for the match' : liveMatch.locking.mine ? 'locking…' : 'locks after yours' }}</small>
         <small><i class="tick" :class="{ on: liveMatch.locking.ready.mine }"></i>{{ liveMatch.locking.ready.mine ? 'Your wallet is ready: it checked both stakes' : 'Your wallet readies once both stakes are in' }}</small>
         <small><i class="tick" :class="{ on: liveMatch.locking.started }"></i>{{ liveMatch.locking.started ? 'Both ready: the match has started' : `Waiting for @${liveMatch.opponent.name}'s wallet to ready` }}</small>
         <small class="fineprint">No referee: the program decides the match from both wallets' signed moves, and the winner's wallet collects both. If a wallet never readies, the other withdraws: the match is void and each stake goes back.</small>
@@ -130,7 +130,7 @@ async function copyId() { await navigator.clipboard.writeText(props.me.id); copi
             <div class="stakes">
               <button v-for="s in stakes" :key="s" class="px stake" :class="{ on: stake === s }" :disabled="!open(s) || !!queued" @click="stake = s">{{ wild(s) }}</button>
             </div>
-            <small class="hint">Wagers lock each stake in your DSM wallet's escrow; the game only referees. They open with the next wallet update.</small>
+            <small class="hint">In a staked match each wallet locks its own stake, and a pinned program decides it, not the game.</small>
           </div>
           <div class="card">
             <template v-if="queued">
@@ -188,7 +188,7 @@ async function copyId() { await navigator.clipboard.writeText(props.me.id); copi
           <small>{{ h.stake === 0 ? 'Free' : wild(h.stake) }} · rating {{ h.ratingDelta >= 0 ? '+' : '' }}{{ h.ratingDelta }}</small>
         </div>
       </template>
-      <p class="fine">Matches run on the game server. Your rating and history belong to your DSM identity.</p>
+      <p class="fine">Matches run on the game server. Your rating and history belong to your DSM passport.</p>
     </section>
   </div>
 </template>

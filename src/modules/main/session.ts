@@ -2,8 +2,8 @@ import { stateSchema, transition, type Command, type GameState } from '../../dom
 
 /**
  * A player's game data on the game server: progress, HP, XP, battles. What
- * they own (coins, creatures) is a projection of verified DSM holdings; this
- * state never mints or spends it.
+ * they own (coins, creatures) is a projection of what their DSM wallet proved
+ * it owns; this state never issues or spends it.
  */
 export class GameSession {
   private state: GameState;

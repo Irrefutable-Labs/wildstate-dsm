@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { lockingMatch, type Match } from '../src/domain/match';
-import { creatureState, b64 } from '../src/domain/program';
+import { lockingMatch, openingOf, type Match, type Side } from '../src/domain/match';
+import { commitEntry, creatureState, b64, resignEntry, revealEntry, startCommitment } from '../src/domain/program';
 import { newCreature, type Creature } from '../src/domain/game';
 
 // The DSM side is mocked: what is checked here is what the game asks each wallet, in what order,
@@ -11,6 +11,8 @@ const dsm = vi.hoisted(() => ({
   matches: {} as Record<string, Match>,
   failLockFor: null as string | null,
   readyHangs: null as string | null,
+  /** The wallets whose ready hung once: a wallet asked again answers from what it kept. */
+  readyHungFor: new Set<string>(),
   /** What a withdrawal finds on the match cell: the withdrawal, or a Start that got there first. */
   withdrawFinds: 'withdrawn' as 'withdrawn' | 'started',
   calls: [] as string[],
@@ -30,7 +32,11 @@ vi.mock('../src/modules/main/dsm', () => ({
   web2: vi.fn(),
   walletWaiting: () => null,
   walletIdentity: async (w: string) => ({ genesis: bytes32(`genesis|${w}`), deviceId: bytes32(`device|${w}`), signingKey: bytes32(`signing|${w}`) }),
-  sessionKey: vi.fn(async (p: { id: string }) => { dsm.calls.push(`key ${p.id}`); return bytes32(`session|${p.id}`); }),
+  // A wallet names its key and commits its start entropy; it opens that entropy with its ready.
+  sessionKey: vi.fn(async (p: { id: string }) => {
+    dsm.calls.push(`key ${p.id}`);
+    return { key: bytes32(`session|${p.id}`), commitment: startCommitment(bytes32(`entropy|${p.id}`)) };
+  }),
   publishedState: vi.fn(async (c: Creature) => { dsm.calls.push(`state ${c.id}`); return creatureState(c, anchorOf(c)); }),
   holdingsProof: vi.fn(async (p: { id: string }, anchors: Uint8Array[]) => { dsm.calls.push(`prove ${p.id} ${anchors.length}`); return { proves: p.id }; }),
   lockDuel: vi.fn(async (p: { id: string }, _setup: Uint8Array, side: string, stake: number, opponent: string, theirs: { proves: string }, counterpart?: string) => {
@@ -38,10 +44,10 @@ vi.mock('../src/modules/main/dsm', () => ({
     if (dsm.failLockFor === p.id) throw new Error('the wallet holds too little WILD');
     return { vault: `vault-${side}`, cell: 'CELL' };
   }),
-  readyDuel: vi.fn(async (p: { id: string }, cell: string, theirs?: Uint8Array) => {
-    dsm.calls.push(`ready ${p.id} on ${cell}${theirs ? ` with ${new TextDecoder().decode(theirs)}` : ''}`);
-    if (dsm.readyHangs === p.id) return new Promise(() => {});
-    return { readySignature: new TextEncoder().encode(`ready-${p.id}`), started: theirs !== undefined };
+  readyDuel: vi.fn(async (p: { id: string }, cell: string, theirs?: { ready: Uint8Array; reveal: Uint8Array }) => {
+    dsm.calls.push(`ready ${p.id} on ${cell}${theirs ? ` with ${new TextDecoder().decode(theirs.ready)}` : ''}`);
+    if (dsm.readyHangs === p.id && !dsm.readyHungFor.has(p.id)) { dsm.readyHungFor.add(p.id); return new Promise(() => {}); }
+    return { readySignature: new TextEncoder().encode(`ready-${p.id}`), reveal: bytes32(`entropy|${p.id}`), started: theirs !== undefined };
   }),
   withdrawDuel: vi.fn(async (p: { id: string }, cell: string) => { dsm.calls.push(`withdraw ${p.id} on ${cell}`); return dsm.withdrawFinds; }),
   signEntry: vi.fn(async (p: { id: string }, _cell: string, preceding: { entry: Uint8Array }[], entry: Uint8Array) => {
@@ -85,7 +91,7 @@ function staked(stake = 100): Match {
 /** Waits until the match's queued wallet requests are done. */
 const settled = (m: Match) => advance(m, events);
 beforeEach(() => {
-  dsm.online = new Set([A, B]); dsm.matches = {}; dsm.failLockFor = null; dsm.readyHangs = null; dsm.withdrawFinds = 'withdrawn'; dsm.calls = []; dsm.signed = []; seen.length = 0;
+  dsm.online = new Set([A, B]); dsm.matches = {}; dsm.failLockFor = null; dsm.readyHangs = null; dsm.readyHungFor = new Set(); dsm.withdrawFinds = 'withdrawn'; dsm.calls = []; dsm.signed = []; seen.length = 0;
 });
 afterEach(() => { vi.useRealTimers(); });
 
@@ -142,6 +148,58 @@ describe('a staked match decided by the program', () => {
     expect(m.escrow).toMatchObject({ start: 'started', problem: '' });
     expect(seen).toEqual(['started m1']);
     expect(dsm.calls.filter((c) => c.startsWith('collect'))).toEqual([]);
+  });
+
+  it('starts the program on both sides\' entropy when the Start beat the withdrawal, so its first turn resolves', async () => {
+    // Two phones, 2026-11-13: B's wallet wrote the Start, the game's account read it before B's
+    // answer came back, the ready was taken as failed, the withdrawal found the Start, and the
+    // match opened with no start state. Both moves were revealed and no turn ever resolved
+    // ("A move could not be signed: input ends inside class").
+    vi.useFakeTimers();
+    const m = staked();
+    dsm.readyHangs = B;
+    dsm.withdrawFinds = 'started';
+    const locking = lockMatch(m, events);
+    await vi.advanceTimersByTimeAsync(READY_MS + 1);
+    await locking;
+    vi.useRealTimers();
+    expect(m.program.reveals).toEqual({ a: b64(bytes32(`entropy|${A}`)), b: b64(bytes32(`entropy|${B}`)) });
+    expect(chooseStaked(m, 'b', 'strike', events)).toBeNull();
+    await settled(m);
+    expect(chooseStaked(m, 'a', 'flare', events)).toBeNull();
+    await settled(m);
+    expect(m.turn).toBe(1);
+    expect(m.escrow!.problem).toBe('');
+  });
+
+  it('picks up a match that was opened with no start state: the turn both wallets revealed resolves, the resignation already signed is played, and the winner collects', async () => {
+    // The record of 2026-11-13 (match pvp/mweuwshp/0): in battle with no start state, both moves
+    // sealed and revealed (entries 1 to 4), then A's resignation signed (entry 5) and never played.
+    const m = staked();
+    await lockMatch(m, events);
+    m.program = { setup: m.program.setup, reveals: null, state: '', turns: [] };
+    m.a.choice = 'strike'; m.b.choice = 'strike';
+    const e = m.escrow!;
+    const salt = bytes32('salt'), strike = openingOf(m, 'a');
+    const signed = (side: Side, entry: Uint8Array) => ({ side, entry: b64(entry), signature: b64(bytes32('signature')) });
+    e.sealed = { a: { salt: b64(salt), opening: b64(strike) }, b: { salt: b64(salt), opening: b64(strike) } };
+    e.revealed = { a: b64(strike), b: b64(strike) };
+    e.transcript = [
+      signed('b', commitEntry(1, 'b', salt, strike)), signed('a', commitEntry(2, 'a', salt, strike)),
+      signed('a', revealEntry(3, 'a', salt, strike)), signed('b', revealEntry(4, 'b', salt, strike)),
+      signed('a', resignEntry(5, 'a')),
+    ];
+    e.problem = 'A move could not be signed: input ends inside class';
+    dsm.calls = []; dsm.signed = []; seen.length = 0;
+    await advance(m, events);
+    // B's wallet answers its ready again; no wallet signs anything twice.
+    expect(dsm.signed).toEqual([]);
+    expect(m.program.reveals).toEqual({ a: b64(bytes32(`entropy|${A}`)), b: b64(bytes32(`entropy|${B}`)) });
+    expect(m.program.turns).toHaveLength(2);
+    expect(m).toMatchObject({ phase: 'done', winner: 'b', reason: 'resign' });
+    expect(seen).toEqual(['turn 1', 'decided b by resign']);
+    expect(dsm.calls).toEqual([`ready ${B} on CELL with ready-${A}`, `settle ${B} on CELL with 5`, `collect ${B} vault-a+vault-b`]);
+    expect(m.escrow).toMatchObject({ outcome: 'b-wins', paid: true, problem: '' });
   });
 
   it('plays each turn as both wallets\' sealed moves, then both reveals, each relayed to the other wallet, and resolves it by the program', async () => {

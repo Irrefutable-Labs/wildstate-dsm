@@ -8,7 +8,7 @@
 import type { Mission } from './missions';
 
 /** Where game reports go: the game's public repository. */
-export const GAME_REPO = 'cryptskii/wildstate-dsm';
+export const GAME_REPO = 'Irrefutable-Labs/wildstate-dsm';
 /** The issue templates the bodies below fill (.github/ISSUE_TEMPLATE in the game's repository). */
 export const BUG_TEMPLATE = 'game-bug.md';
 export const MISSIONS_TEMPLATE = 'weekly-game-missions.md';

@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { mkdirSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { WebSocketServer } from 'ws';
 import { createRpgServerTransport, createMemoryNodeRoomStorage } from '@rpgjs/server/node';
@@ -11,6 +12,8 @@ const required = name => {
   return value;
 };
 const account = new URL(required('DSM_APP_HOST'));
+// The host's <ingress-secret-dir>/ingress-token: the game reads it for every call to its account.
+const accountSecretFile = required('DSM_APP_HOST_SECRET_FILE');
 // The account's spending ingress is never a public service.
 if (account.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(account.hostname)) {
   throw new Error('DSM_APP_HOST must point to the private, local account host');
@@ -84,7 +87,11 @@ server.listen(port, '127.0.0.1', async () => {
     // Map publication uses trusted source files and the private local listener.
     const published = await transport.publishMap('simplemap', { target: `http://127.0.0.1:${port}` });
     if (!published.ok) throw new Error(`Map publication failed: ${published.status} ${await published.text()}`);
-    const status = await fetch(new URL('/activity/0', account), { signal: AbortSignal.timeout(10000) });
+    const secret = (await readFile(accountSecretFile, 'utf8')).trim();
+    const status = await fetch(new URL('/activity/0', account), {
+      headers: { authorization: `Bearer ${secret}` },
+      signal: AbortSignal.timeout(10000),
+    });
     if (!status.ok) throw new Error(`DSM account unavailable: ${status.status}`);
     ready = true;
     console.log('Wildstate backend ready; map published and private DSM account reachable');

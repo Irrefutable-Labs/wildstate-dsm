@@ -1,17 +1,18 @@
 /**
- * DSM underneath the game (DSM Amendment A11).
+ * How the game plugs into DSM (DSM Connect, Amendment A11).
  *
  * The game stays what it was: walking, encounters and battles run here on
- * the game server and never touch DSM. What a player owns lives in the
- * player's DSM wallet on their phone: WILD, the game's coin, and each caught
- * creature, a state object of supply one. The player connects the wallet
+ * the game server and never touch DSM. What a player owns is an object in
+ * the player's DSM wallet on their phone: WILD, the game's coin, and each
+ * caught creature, an object of supply one. The player connects the wallet
  * once by scanning a code; after that the game asks the wallet for what the
- * player granted (accept a creature, pay for a capsule, quote and swap in the
- * market, prove holdings) with no going back and forth to the phone.
+ * player granted (accept a creature, send WILD for a capsule, trade in the
+ * market, prove what it owns) with no going back and forth to the phone.
  *
  * Nothing a wallet answers is evidence. The game grants a capsule only when
  * its own account accepted the payment, and takes coins and creatures only
- * from holdings proofs its account verified (`connect.app.status`).
+ * from proofs of what the wallet owns that its account verified: the
+ * request's fact (`connect.app.status`).
  *
  * The overlay shows both lanes as they happen: what the game server did
  * (Web2) and what DSM did underneath, as the game's account recorded it.
@@ -24,9 +25,23 @@ import type { Economy, Login, Species } from '../../integrations/dsm/economy';
 import { COIN, ITEM_PRICES, SKIN_PRICE, MARKET, MARKET_VAULTS, TRAINER_REWARD, VICTORY_REWARD, WELCOME_COINS, entered, type ShopItem } from '../../integrations/dsm/terms';
 import * as pb from '../../integrations/dsm/proto/dsm_app_pb';
 
+/**
+ * The requests that spend nothing a player's grant lets the game make over the
+ * connection's life (DSM SA-78): proofs of what the wallet owns, contact lookups,
+ * accepting what the game issues, and every move of a match. The wallet's approval screen names
+ * it; past it each request waits for the player.
+ */
+const FREE_REQUESTS = 4096;
+
 /** The game's DSM account (`dsm-app-host`): the game does not run without it. */
 const DSM_HOST_URL: string | undefined = process.env.DSM_APP_HOST;
-const RECORD_PATH = process.env.DSM_GAME_RECORD ? process.env.DSM_GAME_RECORD : 'data/dsm-game.json';
+/** The host's `<ingress-secret-dir>/ingress-token`: every call carries the secret it holds. */
+const DSM_HOST_SECRET_FILE: string | undefined = process.env.DSM_APP_HOST_SECRET_FILE;
+/**
+ * The game's own record, as named when the world is set up: the production server names it
+ * (WILDSTATE_DATA_DIR/dsm-game.json) only after this module has loaded.
+ */
+const recordPath = (): string => process.env.DSM_GAME_RECORD || 'data/dsm-game.json';
 
 // ------------------------------- the overlay -------------------------------
 
@@ -59,7 +74,7 @@ export interface PanelData {
   provenAt: string | null;
 }
 
-/** A WILD amount, as base units of a 0-decimal token. */
+/** A WILD amount: WILD has no decimals, so its units are whole coins. */
 const wildText = (n: bigint) => `${n} WILD`;
 /** An ERA amount: ERA has two decimals. */
 const eraText = (base: bigint) => `${base / 100n}.${String(base % 100n).padStart(2, '0')} ERA`;
@@ -83,13 +98,14 @@ function entry(lane: OverlayEntry['lane'], title: string, detail: string, tone: 
 
 export function world(): Promise<World> {
   if (!DSM_HOST_URL) return Promise.reject(new Error('the game was started without DSM_APP_HOST'));
+  if (!DSM_HOST_SECRET_FILE) return Promise.reject(new Error('the game was started without DSM_APP_HOST_SECRET_FILE'));
   if (!worldReady) {
     worldReady = (async () => {
-      const host = new DsmHost(DSM_HOST_URL as string);
+      const host = new DsmHost(DSM_HOST_URL as string, DSM_HOST_SECRET_FILE as string);
       const meta = await host.activity(0n);
       // Node only: the game's record lives on the game server's disk.
       const { Economy } = await import('../../integrations/dsm/economy');
-      const economy = new Economy(host, RECORD_PATH, b32(meta.deviceId));
+      const economy = new Economy(host, recordPath(), b32(meta.deviceId));
       await economy.eraRow();
       await economy.setUp((line) => {
         const e = entry('dsm', 'Setting up the game account', line, 'wait');
@@ -155,17 +171,17 @@ export function leave(player: RpgPlayer): void {
 
 // ------------------------- the wallet leaving the game -------------------------
 
-/** How often every connected wallet's session is checked on the game account. */
+/** How often every connected wallet's connection is checked on the game account. */
 const SESSION_CHECK_MS = 5000;
-/** What a page does when its wallet's session is gone, by page id (player.ts: back to the connect screen). */
+/** What a page does when its wallet's connection is gone, by page id (player.ts: back to the connect screen). */
 const gone = new Map<string, () => void>();
 let sessionWatch: ReturnType<typeof setInterval> | null = null;
 const sameBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /**
- * A wallet can end its session with the game from its own side (Apps → Wildstate → disconnect).
- * Nothing tells the game; its next request would wait on a session that no longer exists. So
- * every connected wallet's session is checked on the game account, and a page whose session is
+ * A wallet can end its connection with the game from its own side (Apps → Wildstate → disconnect).
+ * Nothing tells the game; its next request would wait on a connection that no longer exists. So
+ * every connected wallet's connection is checked on the game account, and a page whose connection is
  * disconnected, or no longer listed, is handed to `onGone`: there is no game without a wallet.
  */
 export function watchWallet(player: RpgPlayer, onGone: () => void): void {
@@ -176,10 +192,10 @@ export function watchWallet(player: RpgPlayer, onGone: () => void): void {
   }
 }
 
-/** Whether the page's wallet session is held (a request can go over it). */
+/** Whether the page's wallet connection is held (a request can go over it). */
 export const walletConnected = (player: RpgPlayer): boolean => seats.get(player.id)?.session !== null && seats.has(player.id);
 
-/** One read of the account's sessions, checked against every seat; a seat whose session is gone loses it. */
+/** One read of the account's connections, checked against every seat; a seat whose connection is gone loses it. */
 export async function checkSessions(): Promise<void> {
   const watched = allSeats().filter((seat) => seat.session !== null && gone.has(seat.player.id));
   if (!watched.length) return;
@@ -188,16 +204,16 @@ export async function checkSessions(): Promise<void> {
   for (const seat of watched) {
     const mine = live.find((s) => sameBytes(s.sessionId, seat.session!));
     if (mine && mine.status !== pb.ConnectSessionStatus.DISCONNECTED) continue;
-    // The session goes first, so nothing else is asked over it; the wallet's name stays for the
+    // The connection goes first, so nothing else is asked over it; the wallet's name stays for the
     // page's own leaving (the lobby knows players by wallet), then goes too.
     seat.session = null; seat.offerDigest = null; seat.waiting = null;
-    pushEntries(seat, [entry('dsm', 'Wallet disconnected', `Wallet ${seat.wallet ? short(seat.wallet) : '?'} ended its session with the game${mine ? '' : ' (the session is no longer on the game account)'}: back to the connect screen`, 'fail')]);
+    pushEntries(seat, [entry('dsm', 'Wallet disconnected', `Wallet ${seat.wallet ? short(seat.wallet) : '?'} ended its connection with the game${mine ? '' : ' (the connection is no longer on the game account)'}: back to the connect screen`, 'fail')]);
     gone.get(seat.player.id)?.();
     seat.wallet = null;
   }
 }
 
-/** The wallet session a request goes over. A page that has just come back may not have it yet. */
+/** The wallet connection a request goes over. A page that has just come back may not have it yet. */
 function sessionOf(seat: Seat): Bytes {
   if (!seat.session) throw new Error('Your wallet is reconnecting; try again in a moment.');
   return seat.session;
@@ -210,7 +226,7 @@ export function walletWaiting(player: RpgPlayer): string | null {
 
 /**
  * A page that comes back with its game already loaded (the phone switched to the wallet app and
- * back, or the network dropped) still has its wallet's session on the game's account: the
+ * back, or the network dropped) still has its wallet's connection on the game's account: the
  * connection the wallet approved outlives the page's socket. Pick it up again, so requests keep
  * going over it; false when there is none to pick up and the wallet must connect afresh.
  */
@@ -220,7 +236,7 @@ export async function resumeWallet(player: RpgPlayer, holder: string): Promise<b
   const w = await world();
   const live = (await w.host.sessions())
     .filter((s) => b32(s.peerDeviceId) === holder && s.status !== pb.ConnectSessionStatus.DISCONNECTED && grantIsCurrent(s, w))
-    // The one in use most recently: the wallet answers on every session it approved.
+    // The one in use most recently: the wallet answers on every connection it approved.
     .sort((a, b) => (a.lastSeq < b.lastSeq ? 1 : a.lastSeq > b.lastSeq ? -1 : 0));
   if (!live.length || !seats.has(player.id)) return false;
   seat.session = own(live[0].sessionId);
@@ -228,7 +244,7 @@ export async function resumeWallet(player: RpgPlayer, holder: string): Promise<b
   const kept = feeds.get(holder);
   if (kept) { seat.feed = kept; feeds.delete(holder); }
   seat.offerDigest = b32(live[0].offerDigest);
-  pushEntries(seat, [entry('web2', 'Connection resumed', `The page came back; it goes on with wallet ${short(holder)}'s session. Nothing about DSM changed`, 'ok')]);
+  pushEntries(seat, [entry('web2', 'Connection resumed', `The page came back; it goes on with wallet ${short(holder)}'s connection. Nothing about DSM changed`, 'ok')]);
   proveLater(player);
   return true;
 }
@@ -426,7 +442,7 @@ function scopes(w: World): pb.ConnectScopeV1[] {
 }
 
 /**
- * Whether a session's grant covers everything the game's offer asks now: each scope, with at least
+ * Whether a connection's grant covers everything the game's offer asks now: each scope, with at least
  * its limits. A grant from an older offer (lower limits, no stakes) is connected afresh, once, so
  * play never stops for an approval the current offer would not need.
  */
@@ -441,7 +457,7 @@ function grantIsCurrent(session: pb.ConnectSessionV1, w: World): boolean {
  * Show the player a connect code and wait for their wallet. Resolves once the
  * wallet accepted and the game's account added it as a contact.
  */
-/** The login token each player's page was last shown, by player id: what a reloaded page goes on with. */
+/** The resume token each player's page was last shown, by player id: what a reloaded page goes on with. */
 const shownTo = new Map<string, string>();
 
 export async function connectWallet(player: RpgPlayer, bound: (state: GameState) => void, reason = ''): Promise<void> {
@@ -449,7 +465,7 @@ export async function connectWallet(player: RpgPlayer, bound: (state: GameState)
   openPanel(player);
   const gui = player.gui('dsm-connect');
   // A page that comes back (from the wallet app, which the phone brings to the
-  // front, or a reload) sends the login token it was given with its code.
+  // front, or a reload) sends the resume token it was given with its code.
   let offered: string | null = null;
   gui.on<{ token?: unknown }>('resume', ({ token }) => {
     if (typeof token === 'string') offered = token;
@@ -482,7 +498,8 @@ export async function connectWallet(player: RpgPlayer, bound: (state: GameState)
       return [token, brought];
     }
     if (token !== null && brought !== undefined && brought.session !== null && held(brought)) return [token, brought];
-    const offer = await whenReachable(player, gui, () => shown, () => w.host.offer('Wildstate', scopes(w), [w.economy.wild]));
+    const offer = await whenReachable(player, gui, () => shown,
+      () => w.host.offer('Wildstate', scopes(w), [w.economy.wild], FREE_REQUESTS));
     const fresh = b32(globalThis.crypto.getRandomValues(new Uint8Array(32)));
     const login: Login = { offer: b32(offer.offerDigest), session: null };
     w.economy.record.resume[fresh] = login;
@@ -527,7 +544,7 @@ export async function connectWallet(player: RpgPlayer, bound: (state: GameState)
   }
   pushEntries(seat, [
     resumedSession !== null && resumedSession === login.session
-      ? entry('web2', 'Connection resumed', `This browser's game login resumed the session with wallet ${short(seat.wallet!)}; nothing about DSM changed`, 'ok', Date.now() - started)
+      ? entry('web2', 'Connection resumed', `This browser's resume token picked up the connection with wallet ${short(seat.wallet!)}; nothing about DSM changed`, 'ok', Date.now() - started)
       : entry('dsm', 'Wallet connected', `Wallet ${short(seat.wallet!)} approved the grant; the game account added it as a contact`, 'ok', Date.now() - started),
   ]);
   void gui.close();
@@ -536,7 +553,7 @@ export async function connectWallet(player: RpgPlayer, bound: (state: GameState)
   bound(profile);
   web2(player, 'Profile loaded', `The game's own record for wallet ${short(seat.wallet!)}: progress, HP and XP are game data`);
   // Every creature not yet issued, then every object the account issued and still holds: a
-  // delivery a restart or a lost session cut off goes on from where it stopped.
+  // delivery a restart or a lost connection cut off goes on from where it stopped.
   for (const c of profile.creatures.filter((c) => c.anchor === null)) {
     enqueue(player, `Delivering ${displayName(c)}`, () => deliverCreature(player, c.id, c.species));
   }
@@ -607,7 +624,7 @@ export async function claimScarecrowGift(player: RpgPlayer): Promise<number> {
   if (now < readyAt) return readyAt - now;
   player.creatureSave.set(JSON.stringify({ ...latest, scarecrowReadyAt: readyAt }));
   const next = commit(player, { type: 'scarecrow-gift', now });
-  // No await between checking the shared profile and installing the result: two sessions
+  // No await between checking the shared profile and installing the result: two pages
   // for the same wallet cannot both claim. Save before showing the gift dialogue.
   w.economy.record.profiles[seat.wallet] = next;
   w.economy.save();
@@ -681,12 +698,14 @@ export function useHudData(f: (player: RpgPlayer) => Record<string, unknown>): v
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
- * How often a request's status is read. `answer`: the status is a stored answer until the wallet
+ * How often a request's result is read. `answer`: the result is a stored answer until the wallet
  * replies, cheap to read, so it is read often while a reply is likely soon. `sync`: each read takes
  * in the account's inbox first. `walk`: each read walks the vaults of a match's verdict cell.
  */
 type Pace = 'answer' | 'sync' | 'walk';
 const SETTLE_DEADLINE_MS = 6 * 60_000;
+/** A request unanswered for this long is waiting on a wallet that is not running; the player is told to open it. */
+const STALLED_AFTER_MS = 8_000;
 function pause(pace: Pace, elapsed: number): number {
   if (pace === 'walk') return 1000;
   if (pace === 'sync') return 1000;
@@ -702,7 +721,7 @@ async function settle(
   onWaiting?: () => void,
   pace: Pace = 'answer',
 ): Promise<pb.ConnectAppStatusV1> {
-  // The request's own session: a page that drops and comes back mid-wait gets a fresh seat.
+  // The request's own connection: a page that drops and comes back mid-wait gets a fresh seat.
   const session = sessionOf(seatOf(player));
   const w = await world();
   const seat = seatOf(player);
@@ -730,6 +749,17 @@ async function settle(
         player.getGui('field-hud')?.update(hudData(player));
         onWaiting?.();
       }
+      // A wallet that has not even answered after this long is not running: on a phone the
+      // wallet app is behind the game and the system has paused it. The same banner the
+      // approval case shows sends the player to the wallet, which does the work the moment
+      // it is in front (measured 2026-11-10: 13 s with the wallet running, minutes without).
+      if (!saidWaiting && !s.answered && Date.now() - began >= STALLED_AFTER_MS) {
+        saidWaiting = true;
+        seat.waiting = `${what}: your wallet has not answered yet`;
+        web2(player, `${what}: open your wallet`, 'Your DSM wallet answers while it is open: switch to it for a moment and this completes', 'wait');
+        player.getGui('field-hud')?.update(hudData(player));
+        onWaiting?.();
+      }
       await sleep(pause(pace, Date.now() - began));
     }
     throw new Error(`${what}: still not settled; it stays pending`);
@@ -747,10 +777,14 @@ async function sendFromGame(player: RpgPlayer, to: string, ticker: string, amoun
   const w = await world();
   for (let round = 0; ; round++) {
     try {
-      await w.host.send(fromB32(to), ticker, amount, memo);
+      // In turn with every other spend from the game's account: two players paid at once are two
+      // steps, one after the other (a real account, 2026-11-08: the second of two welcome
+      // payments sent at once was refused, and never paid).
+      await w.economy.inTurn(() => w.host.send(fromB32(to), ticker, amount, memo));
       return;
     } catch (e) {
-      const settling = e instanceof HostError && /not send-ready|pending online transition/.test(e.message);
+      const settling = e instanceof HostError
+        && /not send-ready|pending online transition|economic admission is already pending/.test(e.message);
       if (!settling || round >= 40) throw e;
       if (round === 0) web2(player, 'Waiting to send', 'The relationship with your wallet is settling a previous transfer', 'wait');
       // Take in the wallet's countersign now, as the account's inbox poller would.
@@ -760,7 +794,7 @@ async function sendFromGame(player: RpgPlayer, to: string, ticker: string, amoun
   }
 }
 
-/** A caught creature becomes a state object in the player's wallet. */
+/** A caught creature becomes an object in the player's wallet. */
 async function deliverCreature(player: RpgPlayer, creatureId: string, species: Species): Promise<void> {
   const w = await world();
   const started = Date.now();
@@ -783,7 +817,7 @@ async function deliverCreature(player: RpgPlayer, creatureId: string, species: S
 
 /**
  * Objects the game's account issued for this player's creatures and still holds: on their way
- * to the wallet. The account's own balances say so, not the game's record of what it meant to do.
+ * to the wallet. What the account owns says so, not the game's record of what it meant to do.
  */
 async function onTheWay(player: RpgPlayer): Promise<string[]> {
   const w = await world();
@@ -822,11 +856,11 @@ async function handOver(player: RpgPlayer, anchor: string, started = Date.now())
   } finally {
     handingOver.delete(anchor);
   }
-  // Sent: it stays in the party until a proof shows the wallet holding it.
+  // Sent: it stays in the party until a proof shows the wallet owns it.
   w.economy.record.inFlight[wallet] = [...(w.economy.record.inFlight[wallet] ?? []), anchor];
   w.economy.save();
   pushEntries(seat, [
-    entry('dsm', `${SPECIES[species].name} #${issued.serial} delivered`, `State object ${short(anchor)}: supply 1, issued by the game account, now in wallet ${short(wallet)}`, 'ok', Date.now() - started),
+    entry('dsm', `${SPECIES[species].name} #${issued.serial} delivered`, `Object ${short(anchor)}: supply 1, issued by the game account, now in wallet ${short(wallet)}`, 'ok', Date.now() - started),
   ]);
   proveLater(player);
 }
@@ -837,7 +871,7 @@ const handingOver = new Set<string>();
 async function payReward(player: RpgPlayer, to: string, amount: bigint, why: string): Promise<void> {
   const started = Date.now();
   await sendFromGame(player, to, COIN.ticker, String(amount), why);
-  pushEntries(seatOf(player), [entry('dsm', `${why[0].toUpperCase()}${why.slice(1)}: ${wildText(amount)}`, 'An online transfer from the game account to your wallet', 'ok', Date.now() - started)]);
+  pushEntries(seatOf(player), [entry('dsm', `${why[0].toUpperCase()}${why.slice(1)}: ${wildText(amount)}`, 'The game account gave it to your wallet, online', 'ok', Date.now() - started)]);
   proveLater(player);
 }
 
@@ -875,10 +909,10 @@ async function buyItem(player: RpgPlayer, item: ShopItem, n: number): Promise<vo
   const paid = await settle(player, seq, (s) => s.fact === pb.ConnectFact.PAID, `Paying for ${what.toLowerCase()}`,
     () => shopShow(player, { status: 'Approve the payment on your phone: Apps → Waiting' }), 'sync');
   commit(player, { type: 'grant-item', item, qty: n, fact: new TextDecoder().decode(paid.paidTx) });
-  // The wallet paid: show the balance the proof will confirm, so the board does not lag behind the purchase.
+  // The wallet paid: show the WILD the next proof will confirm, so the board does not lag behind the purchase.
   if (seat.coins !== null) seat.coins -= cost;
   pushEntries(seat, [entry('dsm', `${what} paid: ${wildText(cost)}`, 'Granted on the transfer the game account accepted, never on the wallet\'s word', 'ok', Date.now() - started)]);
-  shopShow(player, { busy: false, status: `${what} in your bag · ${wildText(cost)} paid from your wallet`, say: BRAMBLE.bought, delta: `-${cost}`, deltaAt: Date.now() });
+  shopShow(player, { busy: false, status: `${what} in your bag · your wallet sent ${wildText(cost)}`, say: BRAMBLE.bought, delta: `-${cost}`, deltaAt: Date.now() });
   player.getGui('field-hud')?.update(hudData(player));
   proveLater(player);
 }
@@ -900,13 +934,13 @@ async function buySkin(player: RpgPlayer, skin: Skin): Promise<void> {
   commit(player, { type: 'grant-skin', skin, fact: new TextDecoder().decode(paid.paidTx) });
   if (seat.coins !== null) seat.coins -= SKIN_PRICE;
   pushEntries(seat, [entry('dsm', `${SKIN_NAMES[skin]} skin paid: ${wildText(SKIN_PRICE)}`, 'Granted on the transfer the game account accepted, never on the wallet\'s word', 'ok', Date.now() - started)]);
-  shopShow(player, { busy: false, status: `${SKIN_NAMES[skin]} skin in your bag · ${wildText(SKIN_PRICE)} paid from your wallet`, say: BRAMBLE.skin, delta: `-${SKIN_PRICE}`, deltaAt: Date.now() });
+  shopShow(player, { busy: false, status: `${SKIN_NAMES[skin]} skin in your bag · your wallet sent ${wildText(SKIN_PRICE)}`, say: BRAMBLE.skin, delta: `-${SKIN_PRICE}`, deltaAt: Date.now() });
   player.getGui('field-hud')?.update(hudData(player));
   proveLater(player);
 }
 
 /**
- * A creature for Bramble: its state object moves from the wallet to the game's account, then
+ * A creature for Bramble: its object goes from the wallet to the game's account, then
  * the game's account pays for it. The grant covers paying WILD, not handing over a creature,
  * so the wallet asks the player on the phone; the sale counts once the account accepted the object.
  */
@@ -937,7 +971,7 @@ async function sellCreature(player: RpgPlayer, creatureId: string): Promise<void
   commit(player, { type: 'sell', creatureId, fact: new TextDecoder().decode(paid.paidTx) });
   shopShow(player, { status: `${name} is Bramble’s now · paying ${wildText(price)}…` });
   await payOwed(player, wallet);
-  pushEntries(seat, [entry('dsm', `Sold ${name}: ${wildText(price)}`, `Its state object ${short(anchor)} reached the game account, which paid for it`, 'ok', Date.now() - started)]);
+  pushEntries(seat, [entry('dsm', `Sold ${name}: ${wildText(price)}`, `Its object ${short(anchor)} reached the game account, which paid for it`, 'ok', Date.now() - started)]);
   shopShow(player, { busy: false, status: `${name} sold · ${wildText(price)} on its way to your wallet`, say: BRAMBLE.sold, delta: `+${price}`, deltaAt: Date.now() });
   player.getGui('field-hud')?.update(hudData(player));
   proveLater(player);
@@ -981,7 +1015,7 @@ function shopTask(player: RpgPlayer, title: string, task: () => Promise<void>): 
 /** Bramble's Trading Post, open until the player leaves it. */
 export async function openShop(player: RpgPlayer): Promise<void> {
   if (!seatOf(player).session) return;
-  shopViews.set(player.id, { ...quietShop(), status: 'Prices in WILD, paid from your DSM wallet' });
+  shopViews.set(player.id, { ...quietShop(), status: 'Prices in WILD, which your DSM wallet sends' });
   const gui = player.gui('bramble-shop');
   gui.on<{ action: string; item?: string; qty?: number; creatureId?: string; skin?: string }>('shop', ({ action, item, qty, creatureId, skin }) => {
     if (action === 'leave') { gui.close(); return; }
@@ -1001,7 +1035,7 @@ export async function openShop(player: RpgPlayer): Promise<void> {
     }
     if (action === 'sell' && creatureId) {
       shopShow(player, { busy: true, say: '', status: 'Asking your wallet to hand the creature to Bramble…' });
-      web2(player, 'Bramble’s board', 'A sale: the creature’s state object goes to the game account, which pays for it');
+      web2(player, 'Bramble’s board', 'A sale: the creature’s object goes to the game account, which pays for it');
       shopTask(player, 'Selling a creature', () => sellCreature(player, creatureId));
     }
   });
@@ -1009,14 +1043,14 @@ export async function openShop(player: RpgPlayer): Promise<void> {
   await gui.open(shopData(player), { waitingAction: true, blockPlayerInput: true });
   shopViews.delete(player.id);
 }
-/** The wallet balance as the game last saw it (a proof, adjusted by payments since). */
+/** The WILD the wallet owns as the game last saw it (a proof, adjusted by payments since). */
 export function walletCoins(player: RpgPlayer): number | null {
   const c = seats.get(player.id)?.coins ?? null;
   return c === null ? null : Number(c);
 }
 
 /**
- * Ask for a fresh holdings proof after an action, as a task of its own: the
+ * Ask for a fresh proof of what the wallet owns after an action, as a task of its own: the
  * action is done once DSM did it, whatever the proof that follows finds.
  */
 function proveLater(player: RpgPlayer): void {
@@ -1026,12 +1060,21 @@ function proveLater(player: RpgPlayer): void {
   const key = seat.wallet ?? `seat/${player.id}`;
   if (proofsQueued.has(key)) return;
   proofsQueued.add(key);
-  enqueue(player, 'Proving your holdings', () => {
+  enqueue(player, 'Proving what you own', async () => {
     proofsQueued.delete(key);
-    return refreshHoldings(player);
+    try {
+      await refreshHoldings(player);
+    } catch (e) {
+      // A page that came back before its wallet connection did: the proof is asked again once
+      // the connection is there, instead of the shop staying at 0 WILD until the next action.
+      if (e instanceof Error && /reconnecting/.test(e.message) && seats.has(player.id)) {
+        setTimeout(() => { if (seats.has(player.id)) proveLater(player); }, 3000);
+      }
+      throw e;
+    }
   });
 }
-/** Wallets with a holdings proof queued that has not started yet. */
+/** Wallets with a proof of what they own queued that has not started yet. */
 const proofsQueued = new Set<string>();
 
 /** The anchors the game asks about: its coin, ERA, and every creature it issued. */
@@ -1039,7 +1082,7 @@ function holdingsAsked(w: World): Bytes[] {
   return [w.economy.wild, w.economy.eraCommit, ...Object.keys(w.economy.record.creatures).map(fromB32)];
 }
 
-/** Verified holdings: coins and the roster follow the wallet. */
+/** What the wallet owns, verified: coins and the roster follow the wallet. */
 async function refreshHoldings(player: RpgPlayer): Promise<void> {
   const w = await world();
   const seat = seatOf(player);
@@ -1055,7 +1098,7 @@ async function refreshHoldings(player: RpgPlayer): Promise<void> {
       case: 'holdings',
       value: new pb.ConnectHoldingsV1({ policyCommits: asked }),
     });
-    s = await settle(player, seq, (x) => x.fact === pb.ConnectFact.HOLDINGS || (x.answered && x.fact === pb.ConnectFact.NONE && x.factDetail.startsWith('the proof established nothing')), 'Proving holdings');
+    s = await settle(player, seq, (x) => x.fact === pb.ConnectFact.HOLDINGS || (x.answered && x.fact === pb.ConnectFact.NONE && x.factDetail.startsWith('the proof established nothing')), 'Proving what you own');
     if (s.fact === pb.ConnectFact.HOLDINGS || !s.factDetail.includes('NotCurrent')) break;
     await sleep(300);
   }
@@ -1080,11 +1123,11 @@ async function refreshHoldings(player: RpgPlayer): Promise<void> {
     const known = w.economy.record.stats[anchor];
     const creature: Creature = known ?? { ...newCreature(`${anchor}/creature`, issued.species), anchor };
     commit(player, { type: 'receive-creature', creature });
-    web2(player, `${SPECIES[issued.species].name} #${issued.serial} joined`, 'Its state object reached your wallet from another player', 'ok');
+    web2(player, `${SPECIES[issued.species].name} #${issued.serial} joined`, 'The creature, an object, reached your wallet from another player', 'ok');
   }
   w.economy.save();
   const sentLine = inFlight.length > 0 ? `; ${inFlight.length} on the way, not in this proof yet` : '';
-  pushEntries(seat, [entry('dsm', 'Holdings proven', `${wildText(seat.coins)}, ${eraText(seat.era)}, ${held.length} creature object(s)${sentLine}, at wallet position ${s!.holdingsPosition}: verified against the wallet's economic root`, 'ok')]);
+  pushEntries(seat, [entry('dsm', 'Owned objects proven', `${wildText(seat.coins)}, ${eraText(seat.era)}, ${held.length} creature object(s)${sentLine}, at wallet position ${s!.holdingsPosition}: verified against the wallet's economic root`, 'ok')]);
   player.getGui('field-hud')?.update(hudData(player));
   await openMarkets.get(player.id)?.();
 }
@@ -1155,7 +1198,7 @@ export function onCommitted(player: RpgPlayer, command: Command, before: GameSta
   }
   if (finished && battle!.outcome === 'captured') {
     const caught = after.creatures[after.creatures.length - 1];
-    web2(player, 'Captured', `${displayName(caught)} joins your party: the game issues it as a state object in your wallet`);
+    web2(player, 'Captured', `${displayName(caught)} joins your party: the game issues it as an object in your wallet`);
     enqueue(player, 'Delivering the creature', () => deliverCreature(player, caught.id, caught.species));
   }
 }
@@ -1192,7 +1235,7 @@ async function vaultReading(): Promise<MarketData['vault']> {
   return { wild: entered(wild, 0), era: entered(era, 2), generation: String(generation), vaults: read.length };
 }
 
-/** An open market's redraw, by player: a holdings proof that lands while it is open shows in it. */
+/** An open market's redraw, by player: a proof of what the wallet owns that lands while it is open shows in it. */
 const openMarkets = new Map<string, () => Promise<void>>();
 
 /**
@@ -1254,35 +1297,35 @@ export async function openMarket(player: RpgPlayer): Promise<void> {
     const [tokenIn, tokenOut] = buy ? [w.economy.eraCommit, w.economy.wild] : [w.economy.wild, w.economy.eraCommit];
     if (action === 'quote') {
       busy = 'quote';
-      gui.update(data('Pricing the swap through SoFi…'));
+      gui.update(data('Pricing the trade through SoFi…'));
       // A price is information read from the vaults' public state: the game's own account finds it,
-      // at once. Only the swap, which moves the player's coins, goes to their wallet (and waits there
+      // at once. Only the trade, which moves the player's coins, goes to their wallet (and waits there
       // behind whatever the wallet is still taking in).
-      web2(player, 'Market', 'Quote: the game prices the swap through SoFi from the vaults\' public state');
+      web2(player, 'Market', 'Price: the game prices the trade through SoFi from the vaults\' public state');
       const entered = buy ? `${amountIn / 100n}.${String(amountIn % 100n).padStart(2, '0')}` : String(amountIn);
       const q = await w.host.findRoute(tokenIn, tokenOut, entered);
       busy = null;
       if (q.hops.length === 0) { gui.update(data('No route between WILD and ERA right now.')); return; }
       quote = { side: buy ? 'buy' : 'sell', amountIn: buy ? eraText(q.amountIn) : wildText(q.amountIn), amountOut: buy ? wildText(q.amountOut) : eraText(q.amountOut), hops: q.hops.length };
-      gui.update(data(`Quote: ${quote.amountIn} → ${quote.amountOut} over ${q.hops.length} hop(s). Information only.`));
+      gui.update(data(`Price: ${quote.amountIn} → ${quote.amountOut} over ${q.hops.length} hop(s). Information only.`));
       return;
     }
     if (action === 'swap') {
       const started = Date.now();
       busy = 'swap';
       gui.update(data('Your wallet is trading through SoFi…'));
-      web2(player, 'Market', 'Swap: the game asks your wallet to trade; the wallet runs an ordinary SoFi trade');
+      web2(player, 'Market', 'Trade: the game asks your wallet to trade; the wallet carries out an ordinary SoFi trade');
       const seq = await w.host.request(sessionOf(seat), { case: 'swap', value: new pb.ConnectSwapV1({ tokenIn, tokenOut, amountIn, minAmountOut: 1n }) });
       try {
-        const s = await settle(player, seq, (x) => x.answered && x.outcome === pb.ConnectOutcome.CARRIED_OUT, 'Swap', () => { gui.update(data('Your DSM wallet is waiting for you to approve this swap.')); });
+        const s = await settle(player, seq, (x) => x.answered && x.outcome === pb.ConnectOutcome.CARRIED_OUT, 'Trade', () => { gui.update(data('Your DSM wallet is waiting for you to approve this trade.')); });
         const position = s.swap?.position ?? 0n;
-        pushEntries(seat, [entry('dsm', 'Swap realized', `SoFi trade through the WILD/ERA vault at wallet position ${position}; the vault's own record shows it`, 'ok', Date.now() - started)]);
+        pushEntries(seat, [entry('dsm', 'Trade realized', `SoFi trade through the WILD/ERA vault at wallet position ${position}; the vault's own record shows it`, 'ok', Date.now() - started)]);
         proveLater(player);
         // The trade moved the vault: every open market shows its new reserves when read.
         void readVault();
         quote = null;
         busy = null;
-        gui.update(data(`Swapped. Realized at position ${position}.`));
+        gui.update(data(`Traded. Realized at position ${position}.`));
       } catch (e) {
         busy = null;
         gui.update(data(e instanceof Error ? e.message : String(e)));
@@ -1290,7 +1333,7 @@ export async function openMarket(player: RpgPlayer): Promise<void> {
     }
   };
   // Open at once; the vault's reading (a few seconds from the account) fills in when it lands.
-  const greeting = `Swap WILD and ERA with the game's market: ${MARKET_VAULTS} vaults, ${MARKET.feeBps} bps each.`;
+  const greeting = `Trade WILD and ERA at the game's market: ${MARKET_VAULTS} vaults, ${MARKET.feeBps} bps each.`;
   shownStatus = greeting;
   const opened = gui.open(data(greeting), { waitingAction: true, blockPlayerInput: true });
   if (Date.now() - vaultSeen.at > VAULT_FRESH_MS) void readVault();
@@ -1300,7 +1343,7 @@ export async function openMarket(player: RpgPlayer): Promise<void> {
 // ------------------------- computed matches (SoFi S22) -------------------------
 //
 // A staked match is decided by the pinned program, not by the game: each player's wallet locks its
-// stake in a computed escrow vault whose terms its wallet builds from the setup, both wallets ready
+// stake in a computed match vault whose terms its wallet builds from the setup, both wallets ready
 // once they verified both vaults (the second writes the Start), every move is an entry the
 // player's own wallet signs under its session key, and the winner's wallet settles the transcript
 // at the match cell and collects both stakes. Nobody signs a verdict. The game relays the setup
@@ -1357,8 +1400,11 @@ export async function refreshContacts(player: RpgPlayer): Promise<void> {
   contactsOf.set(wallet, r.value.contacts.map((c) => b32(c.deviceId)));
 }
 
-/** `player`'s wallet's session public key for the match whose setup carries `nonce`. */
-export async function sessionKey(player: RpgPlayer, nonce: Bytes): Promise<Bytes> {
+/**
+ * `player`'s wallet's session public key for the match whose setup carries `nonce`, and its
+ * commitment to its start entropy for that match (SoFi S33), which the setup carries.
+ */
+export async function sessionKey(player: RpgPlayer, nonce: Bytes): Promise<{ key: Bytes; commitment: Bytes }> {
   const w = await world();
   const seq = await w.host.request(sessionOf(seatOf(player)), {
     case: 'duelSessionKey', value: new pb.ConnectDuelSessionKeyV1({ matchNonce: nonce }),
@@ -1366,7 +1412,7 @@ export async function sessionKey(player: RpgPlayer, nonce: Bytes): Promise<Bytes
   const s = await settle(player, seq, carried, 'Naming your battle key');
   const r = answered(s);
   if (r.case !== 'duelSessionKey') throw new Error(`the wallet answered ${r.case} for its battle key`);
-  return own(r.value.sessionPublicKey);
+  return { key: own(r.value.sessionPublicKey), commitment: own(r.value.startCommitment) };
 }
 
 /**
@@ -1417,25 +1463,37 @@ export async function lockDuel(
   });
   const s = await settle(player, seq, (x) => x.fact === pb.ConnectFact.DUEL_LOCKED, 'Locking your stake', undefined, 'walk');
   const vault = b32(s.escrowVaultIds[0]);
-  pushEntries(seat, [entry('dsm', 'Stake locked', `${stake} WILD in computed escrow vault ${short(vault)}, on the match's cell; the game's account walked it`, 'ok', Date.now() - started)]);
+  pushEntries(seat, [entry('dsm', 'Stake locked', `${stake} WILD in the match's computed vault ${short(vault)}, on the match's cell; the game's account walked it`, 'ok', Date.now() - started)]);
   proveLater(player);
   return { vault, cell: b32(s.escrowVerdictCell) };
 }
 
 /**
- * Ask `player`'s wallet to ready for the match on `cell`: it verifies both vaults and signs its ready.
- * With the other side's ready, it writes the Start: `started` once the account read the Start there.
+ * Ask `player`'s wallet to ready for the match on `cell`: it verifies both vaults, signs its ready
+ * and hands out its start entropy with it. With the other side's ready and entropy, it checks that
+ * entropy opens the other side's commitment and writes the Start: `started` once the account read
+ * the Start there.
  */
-export async function readyDuel(player: RpgPlayer, cell: string, opponentReady?: Bytes): Promise<{ readySignature: Bytes; started: boolean }> {
+export async function readyDuel(
+  player: RpgPlayer, cell: string, opponent?: { ready: Bytes; reveal: Bytes },
+): Promise<{ readySignature: Bytes; reveal: Bytes; started: boolean }> {
   const w = await world();
   const seq = await w.host.request(sessionOf(seatOf(player)), {
-    case: 'duelReady', value: new pb.ConnectDuelReadyV1({ matchCell: fromB32(cell), opponentReady: opponentReady ?? new Uint8Array() }),
+    case: 'duelReady',
+    value: new pb.ConnectDuelReadyV1({
+      matchCell: fromB32(cell),
+      opponentReady: opponent?.ready ?? new Uint8Array(),
+      opponentReveal: opponent?.reveal ?? new Uint8Array(),
+    }),
   });
-  const second = opponentReady !== undefined;
-  const s = await settle(player, seq, (x) => (second ? x.fact === pb.ConnectFact.DUEL_STARTED : carried(x)), 'Readying for the match', undefined, second ? 'walk' : 'answer');
+  const second = opponent !== undefined;
+  // The second wallet writes the Start and then answers: the account can read the Start on the cell
+  // before that answer is back, and the answer carries this side's start entropy, which the
+  // program starts on. So the second ready is done once the Start holds and the answer is in.
+  const s = await settle(player, seq, (x) => carried(x) && (!second || x.fact === pb.ConnectFact.DUEL_STARTED), 'Readying for the match', undefined, second ? 'walk' : 'answer');
   const r = answered(s);
   if (r.case !== 'duelReady') throw new Error(`the wallet answered ${r.case} to its ready`);
-  return { readySignature: own(r.value.readySignature), started: s.fact === pb.ConnectFact.DUEL_STARTED };
+  return { readySignature: own(r.value.readySignature), reveal: own(r.value.reveal), started: s.fact === pb.ConnectFact.DUEL_STARTED };
 }
 
 /**
@@ -1494,7 +1552,7 @@ export async function collectDuel(player: RpgPlayer, vaults: string[], what: str
     case: 'duelCollect', value: new pb.ConnectDuelCollectV1({ vaultIds: vaults.map(fromB32) }),
   });
   await settle(player, seq, (x) => x.fact === pb.ConnectFact.ESCROW_RELEASED, what, undefined, 'walk');
-  pushEntries(seat, [entry('dsm', what, `Escrow vault${vaults.length > 1 ? 's' : ''} ${vaults.map(short).join(', ')} released to your wallet under the outcome the program computed`, 'ok', Date.now() - started)]);
+  pushEntries(seat, [entry('dsm', what, `Match vault${vaults.length > 1 ? 's' : ''} ${vaults.map(short).join(', ')} released to your wallet under the outcome the program computed`, 'ok', Date.now() - started)]);
   proveLater(player);
 }
 

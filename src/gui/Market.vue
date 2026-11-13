@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /**
- * The market: swap WILD and ERA through the game's SoFi vault, from inside the
- * game. The game asks the player's wallet for a quote and for the trade; the
- * wallet runs an ordinary SoFi trade, routed (and multi-hop when it must be)
- * as SoFi finds it, within what the player granted. Nothing here decides a
- * price or a balance: the reserves are the vault's own reading, the balances are
- * proven holdings, the quote is the wallet's.
+ * The market: trade WILD and ERA at the game's SoFi vaults, from inside the
+ * game. The game's account prices a trade from the vaults' public state; the
+ * player's wallet carries out an ordinary SoFi trade, routed (and multi-hop
+ * when it must be) as SoFi finds it, within what the player granted. Nothing
+ * here decides a price or what anyone owns: the reserves are the vaults' own
+ * reading, what the player owns is proven, the price is the account's.
  */
 import { inject, ref, watch } from 'vue';
 import type { MarketData } from '../modules/main/dsm';
@@ -40,7 +40,7 @@ const held = (action: 'quote' | 'swap') => (props.busy ?? pressed.value) === act
       </div>
       <p class="vault" v-if="vault">The game's {{ vault.vaults }} vaults hold {{ vault.wild }} WILD · {{ vault.era }} ERA · {{ vault.generation }} trade(s) so far</p>
       <p class="vault" v-else>Reading the market's vaults…</p>
-      <p class="mine">You hold {{ coins ?? '…' }} and {{ era ?? '…' }} (proven).</p>
+      <p class="mine">You own {{ coins ?? '…' }} and {{ era ?? '…' }} (proven).</p>
       <div class="sides">
         <button :class="{ sel: side === 'buy' }" @click="side = 'buy'">BUY WILD with ERA</button>
         <button :class="{ sel: side === 'sell' }" @click="side = 'sell'">SELL WILD for ERA</button>
@@ -50,13 +50,13 @@ const held = (action: 'quote' | 'swap') => (props.busy ?? pressed.value) === act
         <input v-model="amount" inputmode="decimal" :placeholder="side === 'buy' ? '1.00' : '50'" @keydown.stop />
       </label>
       <div class="actions">
-        <button :class="{ held: held('quote') }" :disabled="!!(busy || pressed) && !held('quote')" @click="send('quote')">{{ held('quote') ? 'QUOTING…' : 'QUOTE' }}</button>
-        <button class="go" :class="{ held: held('swap') }" :disabled="!quote || (!!(busy || pressed) && !held('swap'))" @click="send('swap')">{{ held('swap') ? 'SWAPPING…' : 'SWAP' }}</button>
+        <button :class="{ held: held('quote') }" :disabled="!!(busy || pressed) && !held('quote')" @click="send('quote')">{{ held('quote') ? 'PRICING…' : 'PRICE' }}</button>
+        <button class="go" :class="{ held: held('swap') }" :disabled="!quote || (!!(busy || pressed) && !held('swap'))" @click="send('swap')">{{ held('swap') ? 'TRADING…' : 'TRADE' }}</button>
       </div>
       <p v-if="quote" class="quote">{{ quote.amountIn }} → {{ quote.amountOut }} ({{ quote.hops }} hop{{ quote.hops === 1 ? '' : 's' }})</p>
       <p class="status" aria-live="polite">{{ status }}</p>
       <div v-if="waiting" class="waiting"><span>Waiting for you in your DSM wallet: {{ waiting }}</span><a href="dsm:wallet">OPEN WALLET ▶</a></div>
-      <!-- Turning while the wallet works on a quote or a swap: it has not frozen. -->
+      <!-- Turning while the game prices a trade or the wallet carries one out: it has not frozen. -->
       <i v-if="busy || pressed" class="spinner" role="progressbar" aria-label="Working"></i>
     </section>
   </div>

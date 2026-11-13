@@ -23,14 +23,15 @@ import {
 import { choose, expire, firstToAct, forfeit, startMatch, type Match, type Side } from './support/reference-match';
 
 type Duel = {
-  conformanceVectors(): { label: string; setup: Uint8Array; turns: Uint8Array[]; opened: { a: Uint8Array; b: Uint8Array }[]; winner: Side; end: string; finalState: Uint8Array }[];
+  conformanceVectors(): { label: string; setup: Uint8Array; revealA: Uint8Array; revealB: Uint8Array; turns: Uint8Array[]; opened: { a: Uint8Array; b: Uint8Array }[]; winner: Side; end: string; finalState: Uint8Array }[];
   turnOfOpenings(a: Uint8Array, b: Uint8Array): Uint8Array;
   encodeMove(mv: unknown): Uint8Array;
   encodeSetup(setup: unknown): Uint8Array;
   encodeTurn(a: Uint8Array, b: Uint8Array): Uint8Array;
-  outcome(setup: Uint8Array, turns: Uint8Array[]): { winner: Side; end: string; turns: number };
+  outcome(setup: Uint8Array, revealA: Uint8Array, revealB: Uint8Array, turns: Uint8Array[]): { winner: Side; end: string; turns: number };
   programHash(): Uint8Array;
-  startState(setup: Uint8Array): Uint8Array;
+  startCommitment(entropy: Uint8Array): Uint8Array;
+  startState(setup: Uint8Array, revealA: Uint8Array, revealB: Uint8Array): Uint8Array;
   stateDigest(state: Uint8Array): Uint8Array;
   stateView(state: Uint8Array): StateView;
   step(state: Uint8Array, turn: Uint8Array): { state: Uint8Array; log: LogView };
@@ -152,8 +153,8 @@ function tsMatchFrom(view: StateView): Match {
 type Compared = { turns: number; comparable: boolean; decided: Side | null };
 
 /** Steps the program and the TS engine together and compares every turn. */
-function lockstep(setup: Uint8Array, turns: Uint8Array[]): Compared {
-  let state = duel.startState(setup);
+function lockstep(setup: Uint8Array, revealA: Uint8Array, revealB: Uint8Array, turns: Uint8Array[]): Compared {
+  let state = duel.startState(setup, revealA, revealB);
   const m = tsMatchFrom(duel.stateView(state));
   for (let i = 0; i < turns.length; i++) {
     const opened = duel.turnView(turns[i]);
@@ -185,12 +186,12 @@ describe('the staked-match program matches the game engine', () => {
     expect(duel.verifyConformance()).toBe(vectors.length);
     let comparable = 0, decidedHere = 0;
     for (const v of vectors) {
-      const out = duel.outcome(v.setup, v.turns);
+      const out = duel.outcome(v.setup, v.revealA, v.revealB, v.turns);
       expect({ winner: out.winner, end: out.end, turns: out.turns }, v.label).toEqual({ winner: v.winner, end: v.end, turns: v.turns.length });
-      let state = duel.startState(v.setup);
+      let state = duel.startState(v.setup, v.revealA, v.revealB);
       for (const t of v.turns) state = duel.step(state, t).state;
       expect(hex(duel.stateDigest(state)), v.label).toBe(hex(v.finalState));
-      const r = lockstep(v.setup, v.turns);
+      const r = lockstep(v.setup, v.revealA, v.revealB, v.turns);
       if (r.comparable) comparable += 1;
       if (r.decided) { decidedHere += 1; expect(r.decided, v.label).toBe(v.winner); }
     }
@@ -213,9 +214,13 @@ describe('the staked-match program matches the game engine', () => {
         return { anchor: bytes32(++anchor), species, xp, hp: r(2) ? max : 1 + r(max), charges };
       });
       const side = (key: number) => ({ genesis: bytes32(key), deviceId: bytes32(key + 1), sessionPublicKey: bytes32(key + 2), poultice: r(3), tonic: r(3), team: team() });
-      const setup = duel.encodeSetup({ program, matchNonce: bytes32(n & 255), turnCap: TURN_CAP, tiebreakSeed: bytes32(r(256)), a: side(1), b: side(4) });
+      const revealA = bytes32(r(256)), revealB = bytes32(r(256));
+      const setup = duel.encodeSetup({
+        program, matchNonce: bytes32(n & 255), turnCap: TURN_CAP,
+        startCommitmentA: duel.startCommitment(revealA), startCommitmentB: duel.startCommitment(revealB), a: side(1), b: side(4),
+      });
 
-      let state = duel.startState(setup);
+      let state = duel.startState(setup, revealA, revealB);
       const m = tsMatchFrom(duel.stateView(state));
       for (let t = 0; ; t++) {
         // Legal moves only: a move with a charge, an item in stock on a standing creature, a pass, rarely a resignation.
@@ -307,7 +312,7 @@ describe('the staked-match program matches the game engine', () => {
   it('(d) runs the vendored program the escrow pins, and plays a garbled opening as a pass', () => {
     // The embedded bytes are the vendored .wasm, and it is the program P the DSM SDK pins.
     expect(Buffer.from(WASM_BASE64, 'base64').equals(readFileSync(new URL('../src/vendor/wildstate-duel/wildstate_duel_wasm_bg.wasm', import.meta.url)))).toBe(true);
-    expect(hex(duel.programHash())).toBe('a4cf70c6fcc1936c60c004616dc46bcdefc200892810cf6da1900afe74194dcd');
+    expect(hex(duel.programHash())).toBe('a7a9543303678e6944654c16a3b20aad13039a850ddf63662a9cbe35d75f7fb2');
     // Every frozen vector's openings, garbled ones included, are the turns it was decided by.
     let garbled = 0;
     for (const v of duel.conformanceVectors()) {

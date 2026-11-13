@@ -10,8 +10,8 @@
  *
  * Each turn, each player's choice is sealed by their own wallet (a Commit entry), and once both
  * are sealed each wallet reveals its own; the game relays every signed entry to the other wallet,
- * which checks it before it signs its next. The turn is then resolved by the same program the
- * escrow runs. Escaping is a Resign. A player whose turn timer runs out while connected has their
+ * which checks it before it signs its next. The turn is then resolved by the same program that
+ * settles the stakes. Escaping is a Resign. A player whose turn timer runs out while connected has their
  * own wallet sign a pass; a player who is away freezes the match until they come back (owner
  * ruling: no clock decides a staked match). At the end the winner's wallet settles the transcript
  * at the match cell and collects both stakes.
@@ -24,7 +24,7 @@ import {
 import { b32, fromB32 } from '../../integrations/dsm/host';
 import { anchorBytes } from '../../domain/program';
 import {
-  loadSetup, moveOf, openingOf, other, resign, resolveTurn, TURN_MS, type Match, type MatchEscrow, type Side,
+  holdSetup, loadSetup, moveOf, openingOf, other, resign, resolveTurn, TURN_MS, type Match, type MatchEscrow, type Side,
 } from '../../domain/match';
 import { b64, commitEntry, encodeMove, encodeSetup, resignEntry, revealEntry, unb64, type Bytes, type SetupSide } from '../../domain/program';
 
@@ -47,7 +47,7 @@ export interface StakedEvents {
 
 export function freshEscrow(nonce: Uint8Array): MatchEscrow {
   return {
-    nonce: b32(nonce), keys: { a: null, b: null }, a: null, b: null, cell: null, ready: null, start: 'open',
+    nonce: b32(nonce), keys: { a: null, b: null }, a: null, b: null, cell: null, ready: null, reveal: null, start: 'open',
     transcript: [], sealed: { a: null, b: null }, revealed: { a: null, b: null }, outcome: null, paid: false,
     refunded: { a: false, b: false }, problem: '',
   };
@@ -98,18 +98,21 @@ export async function lockMatch(m: Match, events: StakedEvents): Promise<void> {
   const e = m.escrow!;
   try {
     const nonce = fromB32(e.nonce);
-    const [keyA, keyB] = await Promise.all((['a', 'b'] as const).map((s) => sessionKey(online(m, s), nonce)));
-    e.keys = { a: b64(keyA), b: b64(keyB) };
+    // Each wallet names its session key and commits its start entropy for the match (SoFi S33).
+    const [named, namedB] = await Promise.all((['a', 'b'] as const).map((s) => sessionKey(online(m, s), nonce)));
+    e.keys = { a: b64(named.key), b: b64(namedB.key) };
     save(); events.changed(m);
-    const side = async (s: Side, key: Uint8Array): Promise<SetupSide> => {
+    const side = async (s: Side, wallet: { key: Uint8Array; commitment: Uint8Array }): Promise<SetupSide> => {
       const id = await walletIdentity(m[s].wallet);
       return {
-        genesis: id.genesis, deviceId: id.deviceId, sessionKey: key, poultice: m[s].items.poultice, tonic: m[s].items.tonic,
+        genesis: id.genesis, deviceId: id.deviceId, sessionKey: wallet.key, startCommitment: wallet.commitment,
+        poultice: m[s].items.poultice, tonic: m[s].items.tonic,
         team: await Promise.all(m[s].team.map((c) => publishedState(c))),
       };
     };
-    const setup = encodeSetup(nonce, await side('a', keyA), await side('b', keyB));
-    loadSetup(m, setup);
+    const setup = encodeSetup(nonce, await side('a', named), await side('b', namedB));
+    // No state before the Start: the tiebreak is derived from the entropy the Start opens.
+    holdSetup(m, setup);
     save();
     // Each wallet checks the other holds its team: B proves its own for A's lock, then A (after its lock) for B's.
     const team = (s: Side) => m[s].team.map((c) => anchorBytes(c));
@@ -127,22 +130,28 @@ export async function lockMatch(m: Match, events: StakedEvents): Promise<void> {
   await readyBoth(m, events);
 }
 
-/** A readies, the game relays its ready, B readies and writes the Start; the waiting wallet withdraws if the other never readies. */
+/**
+ * A readies and hands out its start entropy with its ready; the game relays both; B checks A's
+ * entropy opens A's commitment, readies and writes the Start with both. The waiting wallet
+ * withdraws if the other never readies. The program starts on both sides' entropy.
+ */
 async function readyBoth(m: Match, events: StakedEvents): Promise<void> {
   const { save } = await lobbyRecord();
   const e = m.escrow!;
   let waiting: Side = 'b';
   try {
-    const started = await within(READY_MS, (async () => {
-      if (!e.ready) {
+    const second = await within(READY_MS, (async () => {
+      if (!e.ready || !e.reveal) {
         const ready = await readyDuel(online(m, 'a'), e.cell!);
         e.ready = b64(ready.readySignature);
+        e.reveal = b64(ready.reveal);
         save(); events.changed(m);
       }
       waiting = 'a';
-      return (await readyDuel(online(m, 'b'), e.cell!, unb64(e.ready))).started;
+      return readyDuel(online(m, 'b'), e.cell!, { ready: unb64(e.ready), reveal: unb64(e.reveal) });
     })());
-    if (!started) throw new Error('B readied but no Start holds the match');
+    if (!second.started) throw new Error('B readied but no Start holds the match');
+    loadSetup(m, unb64(m.program.setup), { a: unb64(e.reveal!), b: second.reveal });
   } catch (err) {
     // The wallet left waiting withdraws: no stake waits on the other side's silence.
     await voidMatch(m, `${err instanceof Timeout ? `@${m[other(waiting)].name} did not ready in time` : message(err)}`, events, waiting);
@@ -202,7 +211,17 @@ async function refund(m: Match, events: StakedEvents, by?: Side): Promise<void> 
     }
   }
   if (e.start === 'started') {
-    // The Start reached the cell first: the match is on, and is played.
+    // The Start reached the cell first: the match is on, and is played. Its program starts on
+    // both sides' start entropy, so a match that got here without it asks for it first.
+    if (!m.program.reveals) {
+      try {
+        await loadStarted(m);
+      } catch (err) {
+        e.problem = `The match started, and its start could not be read yet: ${message(err)}`;
+        save();
+        return;
+      }
+    }
     m.phase = 'battle';
     m.deadline = Date.now() + TURN_MS;
     e.problem = '';
@@ -223,6 +242,25 @@ async function refund(m: Match, events: StakedEvents, by?: Side): Promise<void> 
       save();
     }
   }));
+}
+
+/**
+ * Start the program of a match whose Start holds the cell while the game holds no start entropy
+ * for it (a ready whose answer never reached the game). Each wallet answers its ready again from
+ * what it kept: the same signature, the same entropy, and a Start that is already there.
+ */
+async function loadStarted(m: Match): Promise<void> {
+  const { save } = await lobbyRecord();
+  const e = m.escrow!;
+  if (!e.ready || !e.reveal) {
+    const first = await readyDuel(online(m, 'a'), e.cell!);
+    e.ready = b64(first.readySignature);
+    e.reveal = b64(first.reveal);
+    save();
+  }
+  const second = await readyDuel(online(m, 'b'), e.cell!, { ready: unb64(e.ready), reveal: unb64(e.reveal) });
+  loadSetup(m, unb64(m.program.setup), { a: unb64(e.reveal), b: second.reveal });
+  save();
 }
 
 /** A lock that landed after its match gave up on it, found and recorded so the stake goes back. */
@@ -281,6 +319,20 @@ export function advance(m: Match, events: StakedEvents): Promise<void> {
     try {
       for (;;) {
         if (m.phase !== 'battle') return;
+        if (!m.program.reveals) await loadStarted(m);
+        if (e.revealed.a && e.revealed.b) {
+          const log = resolveTurn(m, unb64(e.revealed.a), unb64(e.revealed.b), Date.now());
+          e.sealed = { a: null, b: null };
+          e.revealed = { a: null, b: null };
+          e.problem = '';
+          save();
+          events.resolved(m);
+          events.changed(m);
+          if (log.end) { events.decided(m); await payOut(m, events); return; }
+          continue;
+        }
+        const left = resignedUnplayed(m);
+        if (left) { await playResign(m, left, events); return; }
         const toSeal = (['a', 'b'] as const).find((s) => m[s].choice !== null && !e.sealed[s] && playerOfWallet(m[s].wallet));
         if (toSeal) {
           const salt: Uint8Array<ArrayBuffer> = new Uint8Array(randomBytes(32));
@@ -298,16 +350,7 @@ export function advance(m: Match, events: StakedEvents): Promise<void> {
           await sign(m, toReveal, (i) => revealEntry(i, toReveal, unb64(sealed.salt), unb64(sealed.opening)));
           e.revealed[toReveal] = sealed.opening;
           save(); events.changed(m);
-          continue;
         }
-        const log = resolveTurn(m, unb64(e.revealed.a!), unb64(e.revealed.b!), Date.now());
-        e.sealed = { a: null, b: null };
-        e.revealed = { a: null, b: null };
-        e.problem = '';
-        save();
-        events.resolved(m);
-        events.changed(m);
-        if (log.end) { events.decided(m); await payOut(m, events); return; }
       }
     } catch (err) {
       e.problem = `A move could not be signed: ${message(err)}`;
@@ -318,7 +361,7 @@ export function advance(m: Match, events: StakedEvents): Promise<void> {
 
 /**
  * `side` resigns: its own wallet signs a Resign, and the program gives the other side the win. The
- * other side's move of this turn counts only if it was revealed, as the escrow reads it.
+ * other side's move of this turn counts only if it was revealed, as the settlement reads it.
  */
 export function resignStaked(m: Match, side: Side, events: StakedEvents): Promise<void> {
   return queued(m, async () => {
@@ -326,21 +369,42 @@ export function resignStaked(m: Match, side: Side, events: StakedEvents): Promis
     const { save } = await lobbyRecord();
     const e = m.escrow!;
     try {
-      await sign(m, side, (i) => resignEntry(i, side));
+      if (!m.program.reveals) await loadStarted(m);
+      if (resignedUnplayed(m) !== side) await sign(m, side, (i) => resignEntry(i, side));
     } catch (err) {
       e.problem = `The resignation could not be signed: ${message(err)}`;
       save(); events.changed(m);
       return;
     }
-    const theirs = e.revealed[other(side)];
-    resign(m, side, Date.now(), theirs ? unb64(theirs) : encodeMove({ kind: 'pass' }));
-    e.sealed = { a: null, b: null };
-    e.revealed = { a: null, b: null };
-    save();
-    events.changed(m);
-    events.decided(m);
-    await payOut(m, events);
+    await playResign(m, side, events);
   });
+}
+
+/**
+ * The side whose signed resignation ends the transcript while the program has not played it: the
+ * game stopped between the wallet signing it and the program reading it. No entry follows a
+ * resignation, so it is played, never signed again.
+ */
+function resignedUnplayed(m: Match): Side | null {
+  const e = m.escrow!;
+  const last = e.transcript.at(-1);
+  if (m.phase !== 'battle' || !last) return null;
+  return last.entry === b64(resignEntry(e.transcript.length, last.side)) ? last.side : null;
+}
+
+/** The program plays `side`'s signed resignation, and the stakes go to the other side. */
+async function playResign(m: Match, side: Side, events: StakedEvents): Promise<void> {
+  const { save } = await lobbyRecord();
+  const e = m.escrow!;
+  const theirs = e.revealed[other(side)];
+  resign(m, side, Date.now(), theirs ? unb64(theirs) : encodeMove({ kind: 'pass' }));
+  e.sealed = { a: null, b: null };
+  e.revealed = { a: null, b: null };
+  e.problem = '';
+  save();
+  events.changed(m);
+  events.decided(m);
+  await payOut(m, events);
 }
 
 /** The turn timer ran out (the game's own limit): a player who is here and has not chosen has their own wallet seal a pass. */

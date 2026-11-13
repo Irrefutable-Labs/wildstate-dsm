@@ -2,7 +2,7 @@
  * The staked-match program, as the game server runs it: DSM's `wildstate-duel` outcome program
  * (crates/wildstate-duel), compiled to WebAssembly and vendored in src/vendor/wildstate-duel.
  * Every player-vs-player turn is resolved by these compiled rules, so a match's screen and the
- * escrow that settles it can never disagree. Wild and trainer battles stay on src/domain/duel.ts.
+ * stakes it settles can never disagree. Wild and trainer battles stay on src/domain/duel.ts.
  *
  * Objects cross into the program as their canonical bytes; the game keeps them as Base64 in its
  * own record (Web2 game data). The program's views of those bytes are display only.
@@ -39,7 +39,7 @@ export type ActionView = { side: Side; played: MoveView; dmg: number; multX4: nu
 export type EventView = { side: Side; kind: 'faint' | 'switch'; teamIndex: number };
 export type LogView = { turn: number; first: Side | null; actions: ActionView[]; events: EventView[]; end: WinnerView | null };
 
-/** An issued creature's anchor: its DSM identity, the policy commitment of its supply-one token. */
+/** An issued creature's anchor: its DSM identity, the policy commitment of its supply-one object. */
 export function anchorBytes(c: Creature): Bytes {
   if (c.anchor === null) throw new Error(`creature ${c.id} has not been issued`);
   return fromB32(c.anchor);
@@ -56,28 +56,41 @@ export function creatureState(c: Creature, anchor: Uint8Array): Bytes {
   }));
 }
 
-/** One side of a setup: who plays it, the session key its entries are signed with, its bag and its team. */
+/**
+ * One side of a setup: who plays it, the session key its entries are signed with, the commitment
+ * to its start entropy (its wallet's, in a staked match), its bag and its team.
+ */
 export interface SetupSide {
   genesis: Uint8Array;
   deviceId: Uint8Array;
   sessionKey: Uint8Array;
+  startCommitment: Uint8Array;
   poultice: number;
   tonic: number;
   /** Each fielded creature's canonical state (`creatureState`). */
   team: Uint8Array[];
 }
 
-/** The canonical setup of a match: the program, the nonce, the cap, the tiebreak both keys and the nonce derive, both sides. */
+/**
+ * The canonical setup of a match: the program, the nonce, the cap, each side's start commitment,
+ * both sides. It holds no tiebreak: the program derives it from both sides' start entropy once the
+ * match's Start opens it (SoFi Amendment S33), so neither side nor the game picks it.
+ */
 export function encodeSetup(nonce: Uint8Array, a: SetupSide, b: SetupSide): Bytes {
   const side = (s: SetupSide) => ({ genesis: s.genesis, deviceId: s.deviceId, sessionPublicKey: s.sessionKey, poultice: s.poultice, tonic: s.tonic, team: s.team });
   return own(wasm.encodeSetup({
     program: PROGRAM, matchNonce: nonce, turnCap: TURN_CAP,
-    tiebreakSeed: wasm.tiebreakSeed(nonce, a.sessionKey, b.sessionKey),
+    startCommitmentA: a.startCommitment, startCommitmentB: b.startCommitment,
     a: side(a), b: side(b),
   }));
 }
 
-export const startState = (setup: Uint8Array): Bytes => own(wasm.startState(setup));
+/** The commitment a setup carries for a side's 32-byte start entropy. */
+export const startCommitment = (entropy: Uint8Array): Bytes => own(wasm.startCommitment(entropy));
+/** Both sides' start entropy, as the match's Start opened it (Base64 when kept). */
+export interface Reveals { a: Uint8Array; b: Uint8Array }
+/** The program's state before turn 0, started on both sides' start entropy. */
+export const startState = (setup: Uint8Array, reveals: Reveals): Bytes => own(wasm.startState(setup, reveals.a, reveals.b));
 export const stateView = (state: Uint8Array): StateView => wasm.stateView(state) as StateView;
 export const encodeMove = (mv: MoveView): Bytes => own(wasm.encodeMove(mv));
 

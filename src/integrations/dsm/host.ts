@@ -76,7 +76,30 @@ export const short = (bytes: Uint8Array | string): string =>
 const HOST_CALL_TIMEOUT_MS = 120_000;
 
 export class DsmHost {
-  constructor(readonly base: string) {}
+  /**
+   * `secretFile` is the host's `<ingress-secret-dir>/ingress-token`. The host writes a
+   * new secret there at every launch and refuses a call without it, so the
+   * file is read for each call: a restarted host is reached with its new one.
+   */
+  constructor(readonly base: string, private readonly secretFile: string) {}
+
+  private async authorization(): Promise<string> {
+    // Node only: the secret lives on the game server's disk.
+    const { readFile } = await import('node:fs/promises');
+    let secret = '';
+    try {
+      secret = (await readFile(this.secretFile, 'utf8')).trim();
+    } catch (e) {
+      // The path and the file system's words stay on the server's own log; a player sees only that the account is unreachable.
+      console.error(`[dsm] the ingress secret file could not be read: ${this.secretFile}: ${String(e)}`);
+      throw new HostError('the game account ingress secret is unavailable');
+    }
+    if (secret.length === 0) {
+      console.error(`[dsm] the ingress secret file is empty: ${this.secretFile}`);
+      throw new HostError('the game account ingress secret is unavailable');
+    }
+    return `Bearer ${secret}`;
+  }
 
   private async ingress(request: pb.IngressRequest, quiet: boolean): Promise<pb.IngressResponse> {
     const path = quiet ? '/ingress/quiet' : '/ingress';
@@ -85,7 +108,7 @@ export class DsmHost {
     try {
       const res = await fetch(`${this.base}${path}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/x-protobuf' },
+        headers: { 'content-type': 'application/x-protobuf', authorization: await this.authorization() },
         body: own(request.toBinary()),
         // A call the account never answers fails, instead of holding its player forever.
         signal: AbortSignal.timeout(HOST_CALL_TIMEOUT_MS),
@@ -114,7 +137,7 @@ export class DsmHost {
 
   /** What the host recorded after `after`, and who this account is. */
   async activity(after: bigint): Promise<pb.AppHostActivityV1> {
-    const res = await fetch(`${this.base}/activity/${after}`);
+    const res = await fetch(`${this.base}/activity/${after}`, { headers: { authorization: await this.authorization() } });
     if (!res.ok) throw new HostError(`/activity: the host answered ${res.status}`);
     return pb.AppHostActivityV1.fromBinary(new Uint8Array(await res.arrayBuffer()));
   }
@@ -132,9 +155,11 @@ export class DsmHost {
 
   /** Take in what the storage nodes hold for the account and push what it owes: the inbox poller's sync. */
   async sync(): Promise<pb.StorageSyncResponse> {
-    const payload = await this.query(
+    // An invoke: the sync writes what it takes in, and the router takes it only as one.
+    const payload = await this.invoke(
       'storage.sync',
       new pb.StorageSyncRequest({ pullInbox: true, pushPending: true, limit: 50 }).toBinary(),
+      true,
     );
     if (payload.case !== 'storageSyncResponse') throw new HostError(`storage.sync answered ${payload.case}`);
     return payload.value;
@@ -146,7 +171,7 @@ export class DsmHost {
     return payload.value;
   }
 
-  /** A token of the game's: its whole supply is the game account's at creation. */
+  /** An object the game issues (`token.create`): its whole supply is the game account's at first. */
   async createToken(args: {
     ticker: string;
     alias: string;
@@ -232,7 +257,7 @@ export class DsmHost {
     return payload.value;
   }
 
-  /** An online transfer from the game's account (`wallet.sendSmart`). */
+  /** The game's account gives a wallet an object, online (`wallet.sendSmart`). */
   async send(to: Bytes, ticker: string, amount: string, memo: string): Promise<void> {
     await this.invoke(
       'wallet.sendSmart',
@@ -240,13 +265,23 @@ export class DsmHost {
     );
   }
 
-  async offer(displayName: string, scopes: pb.ConnectScopeV1[], anchors: Uint8Array[]): Promise<pb.ConnectAppOfferV1> {
+  /**
+   * An offer this account signs. `freeRequests` is how many requests that spend
+   * nothing the game asks to make over the connection's life: the player's grant
+   * names it, and past it each request waits for the player (DSM SA-78).
+   */
+  async offer(
+    displayName: string,
+    scopes: pb.ConnectScopeV1[],
+    anchors: Uint8Array[],
+    freeRequests: number,
+  ): Promise<pb.ConnectAppOfferV1> {
     // The host names its own relay endpoint and certificate pin.
     const reply = this.connectReply(
       'connect.app.offer',
       await this.invoke(
         'connect.app.offer',
-        new pb.ConnectAppOfferRequestV1({ displayName, scopes, tokenAnchors: anchors }).toBinary(),
+        new pb.ConnectAppOfferRequestV1({ displayName, scopes, tokenAnchors: anchors, freeRequests }).toBinary(),
       ),
     );
     if (reply.case !== 'offer') throw new HostError(`connect.app.offer answered ${reply.case}`);
@@ -295,7 +330,7 @@ export class DsmHost {
     return payloadOf.value;
   }
 
-  /** What the account established about request `seq`. `recorded` puts the check in the record. */
+  /** The result of request `seq`: what the account established about it. `recorded` puts the check in the record. */
   async status(sessionId: Bytes, seq: bigint, recorded = false): Promise<pb.ConnectAppStatusV1> {
     const reply = this.connectReply(
       'connect.app.status',

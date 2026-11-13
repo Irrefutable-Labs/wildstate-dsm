@@ -1,19 +1,21 @@
 /**
  * The game's economy on DSM (DSM Amendment A11, the §78 picture): the game
- * stays a Web2 game, and what a player owns lives in the player's wallet.
+ * stays a Web2 game, plugged into DSM, and what a player owns is an object in
+ * the player's wallet.
  *
- * - WILD, the game's coin: a token the game's account created; its whole
- *   supply is the account's, and it pays players from it.
+ * - WILD, the game's coin: an object the game's account issued; its whole
+ *   supply is the account's, and the account gives players WILD from it.
  * - The WILD/ERA market: MARKET_VAULTS SoFi vaults the account funds in equal slices, so
- *   players' swaps through different vaults never race for one vault's key.
- * - Each creature a state object: a token of supply one the account creates
- *   when the creature is caught. Its committed policy names the game as
- *   issuer, the species and the capture; its policy commitment is the
- *   creature's identity. HP and XP stay game data, keyed by that identity.
+ *   players' trades through different vaults never race for one vault's key.
+ * - Each creature an object of supply one, which the account issues when the
+ *   creature is caught. Its committed policy names the game as issuer, the
+ *   species and the capture; its policy commitment is the creature's
+ *   identity. HP and XP stay game data, keyed by that identity.
  *
  * This file is the game's own Web2 record of what it did on DSM (which
  * anchors are its coin and its creatures, its players' game profiles). It is
- * never evidence of ownership: holdings come from proofs the account verifies.
+ * never evidence of ownership: what a wallet owns comes from proofs the
+ * account verifies.
  */
 import type { Directory } from '../../domain/username';
 import type { Match } from '../../domain/match';
@@ -36,7 +38,7 @@ interface IssuedCreature {
   creature?: string;
 }
 
-/** What a browser's login names: the offer it was shown, and the session the wallet made of it. */
+/** What a browser's resume token names: the offer it was shown, and the connection the wallet made of it. */
 export interface Login {
   offer: string;
   session: string | null;
@@ -57,11 +59,11 @@ interface EconomyRecord {
   profiles: Record<string, GameState>;
   /** Game data of creatures that left a profile with their object, by anchor. */
   stats: Record<string, Creature>;
-  /** Creature objects sent to each wallet that no holdings proof has shown yet, by wallet. */
+  /** Creature objects sent to each wallet that no proof of what it owns has shown yet, by wallet. */
   inFlight: Record<string, string[]>;
   /**
-   * A browser's login token → the offer it was shown and the session that offer
-   * became (Base32). A Web2 login, never DSM authority: a page that comes back
+   * A browser's resume token → the offer it was shown and the connection that offer
+   * became (Base32). Web2 only, never DSM authority: a page that comes back
    * (from the wallet app, or a reload) picks up its connection with it.
    */
   resume: Record<string, Login>;
@@ -85,7 +87,7 @@ interface EconomyRecord {
  * written here before the next begins, so a restart resumes where it stopped and never repeats one.
  */
 interface MarketRecord {
-  /** Each lane's WILD and ERA in base units: exact slices summing to what the market holds. */
+  /** Each lane's WILD (whole coins) and ERA (hundredths): exact slices summing to what the market holds. */
   plan: { wild: string[]; era: string[] } | null;
   /** The single vault before lanes is closed (or there never was one). */
   legacyClosed: boolean;
@@ -95,7 +97,7 @@ interface MarketRecord {
 
 /**
  * `total` in `parts` exact slices: each `⌊total/parts⌋`, the first `total mod parts` one more.
- * They sum to `total`, to the base unit; nothing is dropped.
+ * They sum to `total` exactly, to the smallest unit; nothing is dropped.
  */
 export function splitExact(total: bigint, parts: number): bigint[] {
   const n = BigInt(parts);
@@ -107,7 +109,7 @@ export function splitExact(total: bigint, parts: number): bigint[] {
 /** ERA's decimals. */
 const ERA_DECIMALS = 2;
 
-/** The fee a token's creation burns, in ERA base units (`TOKEN_CREATION_FEE_ERA`). */
+/** The fee issuing an object burns, in hundredths of an ERA (`TOKEN_CREATION_FEE_ERA`): 10 ERA. */
 const CREATION_FEE_ERA = 1_000n;
 /** ERA the account keeps before it creates anything: the coin, the market, a few creatures. */
 // Fund the market and retain 200 ERA for issuing creatures, after WILD's creation fee.
@@ -117,7 +119,7 @@ const CODE: Record<Species, string> = { embercub: 'EM', mossling: 'MS', tidefin:
 
 export class Economy {
   record: EconomyRecord;
-  /** ERA's policy anchor, as this account's balances name it. */
+  /** ERA's policy anchor, as what this account owns names it. */
   eraAnchor = '';
   /**
    * The account's own operations that advance its state, one after another. Each player's tasks
@@ -126,8 +128,13 @@ export class Economy {
    */
   private accountTurn: Promise<unknown> = Promise.resolve();
 
-  /** Run `op` once every account operation queued before it is done. */
-  private inTurn<T>(op: () => Promise<T>): Promise<T> {
+  /**
+   * Run `op` once every account operation queued before it is done. The account admits one
+   * economic step at a time (DSM refuses a second while one is pending: "an economic admission is
+   * already pending"), so everything that spends from it, an object issued or a transfer sent,
+   * runs in turn.
+   */
+  inTurn<T>(op: () => Promise<T>): Promise<T> {
     const run = this.accountTurn.then(op, op);
     this.accountTurn = run.then(
       () => undefined,
@@ -142,7 +149,7 @@ export class Economy {
       : { account, wild: null, vault: null, creatures: {}, nextSerial: 1, profiles: {}, stats: {}, inFlight: {}, resume: {}, welcomed: [], owed: {}, players: {}, usernames: {}, matches: {} };
     this.record.inFlight ??= {};
     this.record.resume ??= {};
-    // Logins kept before they named their offer named only a session.
+    // Resume tokens kept before they named their offer named only a connection.
     for (const [token, login] of Object.entries(this.record.resume as Record<string, Login | string>)) {
       if (typeof login === 'string') this.record.resume[token] = { offer: '', session: login };
     }
@@ -177,7 +184,7 @@ export class Economy {
     return fromB32(this.record.wild);
   }
 
-  /** The account's ERA row: its balance in base units and its anchor. */
+  /** The account's ERA row: how much it owns, in hundredths of an ERA, and its anchor. */
   async eraRow(): Promise<{ available: bigint; anchor: string }> {
     const era = (await this.host.balances()).find((b) => b.tokenId === 'ERA');
     if (!era || !era.policyAnchorB32) throw new Error('the game account lists no ERA');
@@ -194,11 +201,11 @@ export class Economy {
     return fromB32(this.eraAnchor);
   }
 
-  /** ERA enough for `needed` base units: a faucet claim when the account holds less. */
+  /** ERA enough for `needed` hundredths of an ERA: a faucet claim when the account owns less. */
   async ensureEra(needed: bigint, say: (line: string) => void): Promise<void> {
     let available = await this.era();
     while (available < needed) {
-      say('The game account claims ERA from the network faucet for liquidity and token creation fees');
+      say('The game account claims ERA from the network faucet for liquidity and the fees for issuing its objects');
       const claimed = await this.host.claimFaucet(fromB32(this.record.account));
       if (!claimed.success) throw new Error(`faucet.claim: ${claimed.message}`);
       const next = await this.era();
@@ -211,12 +218,12 @@ export class Economy {
   async setUp(say: (line: string) => void): Promise<void> {
     if (!this.record.wild) {
       await this.ensureEra(ERA_TO_START, say);
-      say(`Creating ${COIN.ticker}, the game's coin: a token of fixed supply ${COIN.supply}`);
+      say(`Issuing ${COIN.ticker}, the game's coin: an object of fixed supply ${COIN.supply}`);
       const anchor = await this.host.createToken({
         ticker: COIN.ticker,
         alias: COIN.alias,
         supply: COIN.supply,
-        description: 'Wildstate coin: paid by the game for victories, spent on capsules, traded against ERA.',
+        description: 'Wildstate coin: given by the game for victories, spent on capsules, traded for ERA.',
       });
       this.record.wild = b32(anchor);
       this.save();
@@ -226,7 +233,7 @@ export class Economy {
 
   /**
    * The account's own name for lane `i`'s vault: this game's market of this pair at this fee. The
-   * game recognizes its lanes by it and by nothing else, so another vault of the same tokens is never
+   * game recognizes its lanes by it and by nothing else, so another vault of the same objects is never
    * taken for one of them.
    */
   laneLabel(i: number): string {
@@ -331,10 +338,10 @@ export class Economy {
     return state;
   }
 
-  /** A new creature object: a token of supply one whose policy says what it is. */
+  /** A new creature: an object of supply one whose policy says what it is. */
   async issueCreature(species: Species, say: (line: string) => void, creature?: string): Promise<string> {
     // The serial is taken before anything is awaited. A creature's anchor follows from its policy,
-    // and its policy from its serial: two issuances that read one serial would create one token of
+    // and its policy from its serial: two issuances that read one serial would issue one object of
     // supply one and bind two players to it.
     const serial = this.record.nextSerial;
     this.record.nextSerial = serial + 1;
