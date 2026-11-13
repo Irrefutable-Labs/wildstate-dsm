@@ -211,7 +211,17 @@ async function refund(m: Match, events: StakedEvents, by?: Side): Promise<void> 
     }
   }
   if (e.start === 'started') {
-    // The Start reached the cell first: the match is on, and is played.
+    // The Start reached the cell first: the match is on, and is played. Its program starts on
+    // both sides' start entropy, so a match that got here without it asks for it first.
+    if (!m.program.reveals) {
+      try {
+        await loadStarted(m);
+      } catch (err) {
+        e.problem = `The match started, and its start could not be read yet: ${message(err)}`;
+        save();
+        return;
+      }
+    }
     m.phase = 'battle';
     m.deadline = Date.now() + TURN_MS;
     e.problem = '';
@@ -232,6 +242,25 @@ async function refund(m: Match, events: StakedEvents, by?: Side): Promise<void> 
       save();
     }
   }));
+}
+
+/**
+ * Start the program of a match whose Start holds the cell while the game holds no start entropy
+ * for it (a ready whose answer never reached the game). Each wallet answers its ready again from
+ * what it kept: the same signature, the same entropy, and a Start that is already there.
+ */
+async function loadStarted(m: Match): Promise<void> {
+  const { save } = await lobbyRecord();
+  const e = m.escrow!;
+  if (!e.ready || !e.reveal) {
+    const first = await readyDuel(online(m, 'a'), e.cell!);
+    e.ready = b64(first.readySignature);
+    e.reveal = b64(first.reveal);
+    save();
+  }
+  const second = await readyDuel(online(m, 'b'), e.cell!, { ready: unb64(e.ready), reveal: unb64(e.reveal) });
+  loadSetup(m, unb64(m.program.setup), { a: unb64(e.reveal), b: second.reveal });
+  save();
 }
 
 /** A lock that landed after its match gave up on it, found and recorded so the stake goes back. */
@@ -290,6 +319,20 @@ export function advance(m: Match, events: StakedEvents): Promise<void> {
     try {
       for (;;) {
         if (m.phase !== 'battle') return;
+        if (!m.program.reveals) await loadStarted(m);
+        if (e.revealed.a && e.revealed.b) {
+          const log = resolveTurn(m, unb64(e.revealed.a), unb64(e.revealed.b), Date.now());
+          e.sealed = { a: null, b: null };
+          e.revealed = { a: null, b: null };
+          e.problem = '';
+          save();
+          events.resolved(m);
+          events.changed(m);
+          if (log.end) { events.decided(m); await payOut(m, events); return; }
+          continue;
+        }
+        const left = resignedUnplayed(m);
+        if (left) { await playResign(m, left, events); return; }
         const toSeal = (['a', 'b'] as const).find((s) => m[s].choice !== null && !e.sealed[s] && playerOfWallet(m[s].wallet));
         if (toSeal) {
           const salt: Uint8Array<ArrayBuffer> = new Uint8Array(randomBytes(32));
@@ -307,16 +350,7 @@ export function advance(m: Match, events: StakedEvents): Promise<void> {
           await sign(m, toReveal, (i) => revealEntry(i, toReveal, unb64(sealed.salt), unb64(sealed.opening)));
           e.revealed[toReveal] = sealed.opening;
           save(); events.changed(m);
-          continue;
         }
-        const log = resolveTurn(m, unb64(e.revealed.a!), unb64(e.revealed.b!), Date.now());
-        e.sealed = { a: null, b: null };
-        e.revealed = { a: null, b: null };
-        e.problem = '';
-        save();
-        events.resolved(m);
-        events.changed(m);
-        if (log.end) { events.decided(m); await payOut(m, events); return; }
       }
     } catch (err) {
       e.problem = `A move could not be signed: ${message(err)}`;
@@ -335,21 +369,42 @@ export function resignStaked(m: Match, side: Side, events: StakedEvents): Promis
     const { save } = await lobbyRecord();
     const e = m.escrow!;
     try {
-      await sign(m, side, (i) => resignEntry(i, side));
+      if (!m.program.reveals) await loadStarted(m);
+      if (resignedUnplayed(m) !== side) await sign(m, side, (i) => resignEntry(i, side));
     } catch (err) {
       e.problem = `The resignation could not be signed: ${message(err)}`;
       save(); events.changed(m);
       return;
     }
-    const theirs = e.revealed[other(side)];
-    resign(m, side, Date.now(), theirs ? unb64(theirs) : encodeMove({ kind: 'pass' }));
-    e.sealed = { a: null, b: null };
-    e.revealed = { a: null, b: null };
-    save();
-    events.changed(m);
-    events.decided(m);
-    await payOut(m, events);
+    await playResign(m, side, events);
   });
+}
+
+/**
+ * The side whose signed resignation ends the transcript while the program has not played it: the
+ * game stopped between the wallet signing it and the program reading it. No entry follows a
+ * resignation, so it is played, never signed again.
+ */
+function resignedUnplayed(m: Match): Side | null {
+  const e = m.escrow!;
+  const last = e.transcript.at(-1);
+  if (m.phase !== 'battle' || !last) return null;
+  return last.entry === b64(resignEntry(e.transcript.length, last.side)) ? last.side : null;
+}
+
+/** The program plays `side`'s signed resignation, and the stakes go to the other side. */
+async function playResign(m: Match, side: Side, events: StakedEvents): Promise<void> {
+  const { save } = await lobbyRecord();
+  const e = m.escrow!;
+  const theirs = e.revealed[other(side)];
+  resign(m, side, Date.now(), theirs ? unb64(theirs) : encodeMove({ kind: 'pass' }));
+  e.sealed = { a: null, b: null };
+  e.revealed = { a: null, b: null };
+  e.problem = '';
+  save();
+  events.changed(m);
+  events.decided(m);
+  await payOut(m, events);
 }
 
 /** The turn timer ran out (the game's own limit): a player who is here and has not chosen has their own wallet seal a pass. */

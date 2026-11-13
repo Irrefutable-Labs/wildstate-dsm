@@ -1487,7 +1487,10 @@ export async function readyDuel(
     }),
   });
   const second = opponent !== undefined;
-  const s = await settle(player, seq, (x) => (second ? x.fact === pb.ConnectFact.DUEL_STARTED : carried(x)), 'Readying for the match', undefined, second ? 'walk' : 'answer');
+  // The second wallet writes the Start and then answers: the account can read the Start on the cell
+  // before that answer is back, and the answer carries this side's start entropy, which the
+  // program starts on. So the second ready is done once the Start holds and the answer is in.
+  const s = await settle(player, seq, (x) => carried(x) && (!second || x.fact === pb.ConnectFact.DUEL_STARTED), 'Readying for the match', undefined, second ? 'walk' : 'answer');
   const r = answered(s);
   if (r.case !== 'duelReady') throw new Error(`the wallet answered ${r.case} to its ready`);
   return { readySignature: own(r.value.readySignature), reveal: own(r.value.reveal), started: s.fact === pb.ConnectFact.DUEL_STARTED };
