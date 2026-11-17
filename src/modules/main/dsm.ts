@@ -112,7 +112,8 @@ export function world(): Promise<World> {
         setupLines.push(e);
         for (const seat of allSeats()) pushEntries(seat, [e]);
       });
-      startActivityPump(host);
+      pumpHost = host;
+      wakeActivityPump();
       return { host, economy, meta };
     })();
     worldReady.catch((e) => {
@@ -155,9 +156,13 @@ function seatOf(player: RpgPlayer): Seat {
       coins: null, era: null, provenAt: null, lastWalk: 0, resumeToken: null, waiting: null,
     };
     seats.set(player.id, seat);
+    wakeActivityPump();
   }
   return seat;
 }
+
+/** Whether anyone is seated: with nobody playing, the server asks the account nothing. */
+export const anyoneSeated = (): boolean => seats.size > 0;
 
 /** A wallet's DSM panel history, kept while its page is away, so coming back does not empty it. */
 const feeds = new Map<string, OverlayEntry[]>();
@@ -198,7 +203,11 @@ export const walletConnected = (player: RpgPlayer): boolean => seats.get(player.
 /** One read of the account's connections, checked against every seat; a seat whose connection is gone loses it. */
 export async function checkSessions(): Promise<void> {
   const watched = allSeats().filter((seat) => seat.session !== null && gone.has(seat.player.id));
-  if (!watched.length) return;
+  if (!watched.length) {
+    // Nobody connected: the check stops, and the next wallet that connects starts it again.
+    if (sessionWatch !== null) { clearInterval(sessionWatch); sessionWatch = null; }
+    return;
+  }
   let live: pb.ConnectSessionV1[];
   try { live = (await (await world()).host.sessions()); } catch { return; } // the account unreachable: nothing is decided on that
   for (const seat of watched) {
@@ -326,21 +335,43 @@ let hostDownSince: number | null = null;
  * moves players stops while it is (phones, 2026-10-08: walking paused, then went on).
  */
 function watchForStalls(): void {
+  if (stallWatch !== null) return;
   const EVERY_MS = 500;
   let expected = performance.now() + EVERY_MS;
-  const timer = setInterval(() => {
+  stallWatch = setInterval(() => {
     const now = performance.now();
     const late = Math.round(now - expected);
     if (late >= 250) console.warn(`[stall] the server was blocked for ${late} ms`);
     expected = now + EVERY_MS;
   }, EVERY_MS);
-  timer.unref?.();
+  stallWatch.unref?.();
 }
+let stallWatch: ReturnType<typeof setInterval> | null = null;
 
-function startActivityPump(host: DsmHost): void {
+/** The game account, once set up: the activity pump reads it. */
+let pumpHost: DsmHost | null = null;
+/** Whether the activity pump is running. */
+let pumping = false;
+/** Where the account's activity was read to: a pump that stops and starts again goes on from there. */
+let activityAfter = 0n;
+
+/**
+ * Read the account's activity while anyone plays. The first seat starts the pump, and it stops
+ * itself when the last seat leaves: with nobody playing, nothing shows it, and the server asks the
+ * account nothing.
+ */
+function wakeActivityPump(): void {
+  if (pumping || pumpHost === null || seats.size === 0) return;
+  pumping = true;
   watchForStalls();
-  let after = 0n;
+  const host = pumpHost;
   const tick = async () => {
+    if (seats.size === 0) {
+      pumping = false;
+      if (stallWatch !== null) { clearInterval(stallWatch); stallWatch = null; }
+      return;
+    }
+    const after = activityAfter;
     try {
       const feed = await host.activity(after);
       worldMeta = feed;
@@ -350,7 +381,7 @@ function startActivityPump(host: DsmHost): void {
         hostDownSince = null;
       }
       if (feed.entries.length > 0) {
-        after = feed.entries[feed.entries.length - 1].seq;
+        activityAfter = feed.entries[feed.entries.length - 1].seq;
         const entries = feed.entries.map(dsmEntry);
         for (const seat of allSeats()) pushEntries(seat, entries, 'soon');
       }
@@ -362,10 +393,13 @@ function startActivityPump(host: DsmHost): void {
         for (const seat of allSeats()) pushEntries(seat, [failed]);
       }
     }
-    setTimeout(tick, 1000);
+    setTimeout(tick, ACTIVITY_EVERY_MS);
   };
   void tick();
 }
+
+/** How often the account's activity is read while someone plays. */
+const ACTIVITY_EVERY_MS = 1000;
 
 /**
  * `ask`, once the game's account answers. While it is away (a fetch that

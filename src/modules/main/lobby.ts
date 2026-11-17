@@ -10,7 +10,7 @@
  */
 import { Components, type RpgPlayer } from '@rpgjs/server';
 import { session } from './journey';
-import { deliverUnissued, lobbyRecord, playerOfWallet, refreshContacts, walletContacts, walletIdentity, walletOf, walletWaiting, web2 } from './dsm';
+import { anyoneSeated, deliverUnissued, lobbyRecord, playerOfWallet, refreshContacts, walletContacts, walletIdentity, walletOf, walletWaiting, web2 } from './dsm';
 import { commit, isFighting, setFighting, setInArena, setInMatch } from './field';
 import { isSpeaking } from './dialogue';
 import { SPECIES, GameError, displayName, fieldedTeam, level, maxCharges, maxHp, type Command, type Creature, type GameState } from '../../domain/game';
@@ -146,12 +146,19 @@ function battleView(m: Match, side: Side) {
 // ------------------------------------------------------------------ lobby GUI
 
 let started = false;
-/** Starts the lobby's clock once, after voiding matches a server restart cut off. */
+/** The lobby's clock: it runs while anyone plays and stops when nobody does. */
+let clock: ReturnType<typeof setInterval> | null = null;
+/**
+ * Voids the matches a server restart cut off, once per server start, then starts the lobby's clock
+ * if it is not running. A staked match waits for its players whether or not the clock runs, so the
+ * clock stopping while nobody plays decides nothing.
+ */
 async function ensureStarted() {
-  if (started) return;
-  started = true;
-  await voidStaleMatches();
-  setInterval(() => { void tickLobby(); }, 1000);
+  if (!started) {
+    started = true;
+    await voidStaleMatches();
+  }
+  if (clock === null) clock = setInterval(() => { void tickLobby(); }, 1000);
 }
 
 export async function openLobby(player: RpgPlayer): Promise<void> {
@@ -514,6 +521,10 @@ async function settle(m: Match) {
 
 /** Every second: pair the queue, time turns out, resign free-match players who stayed away, lapse old challenges. */
 async function tickLobby() {
+  if (!anyoneSeated()) {
+    if (clock !== null) { clearInterval(clock); clock = null; }
+    return;
+  }
   const now = Date.now();
   for (const c of challenges.values()) if (now - c.at > CHALLENGE_MS) { challenges.delete(c.id); void refreshLobby(c.from); void refreshLobby(c.to); }
   for (const [a, b] of pair([...queue.values()].filter(t => playerOfWallet(t.wallet)), now)) await begin(a.wallet, b.wallet, a.stake);
