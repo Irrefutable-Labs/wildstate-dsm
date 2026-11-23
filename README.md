@@ -1,6 +1,6 @@
 # Wildstate
 
-A creature-collecting RPG that plugs into DSM. Wildstate is an Android app. What you own in it, your WILD coin and every creature you catch, is an object in your DSM wallet, not a row on a game server.
+A creature-collecting RPG that plugs into DSM. Wildstate is an Android app, and a demo: it was built to show what an app plugged into DSM looks like, not as a finished game. What you own in it, your WILD coin and every creature you catch, is an object in your DSM wallet, not a row on a game server. A creature's level, HP and charges, your items and your skins are the game server's data; the game's account also publishes each creature's state to DSM as a signed record, chained from its capture.
 
 Wildstate is in beta. Everything in it is test value: never send real Bitcoin, real crypto or anything of value to a beta wallet.
 
@@ -9,7 +9,7 @@ Wildstate is in beta. Everything in it is test value: never send real Bitcoin, r
 You need two apps on an Android 8 or newer phone:
 
 1. **The DSM wallet**, from the [DSM releases](https://github.com/deterministicstatemachine/dsm/releases). Install it and set up a wallet first.
-2. **Wildstate**, `wildstate.apk`, from this repository's [Releases](https://github.com/Irrefutable-Labs/wildstate-dsm/releases).
+2. **Wildstate**, `wildstate.apk`, from this repository's [Releases](https://github.com/Irrefutable-Labs/wildstate-dsm/releases), once one is published (none is yet).
 
 Each APK is a signed release build (Wildstate's signer is `CN=Wildstate, O=DSM`; every update is signed with the same key). Download the APK on the phone, open it, and allow installation from your browser or file manager when Android asks. Check the SHA-256 against the one on the release page if you want to be sure of the file.
 
@@ -24,8 +24,8 @@ Open Wildstate. It shows a connect code. Either tap **OPEN DSM WALLET** on the s
 - **Walk** with the thumbstick. The camp is where you start.
 - **Tall grass.** Walk into tall grass for a wild encounter: the meadow east of camp, and Rowan's field in the north-west. Weaken a creature to 14 HP or less, throw a capsule and name it. It joins your BAG and arrives in your wallet's Objects, an object of its own.
 - **Pond.** CAST at the water's edge to fish. Water creatures come only from the pond.
-- **Battles.** Each species has four moves: an unlimited Strike and three with charges. Elements matter (fire beats grass; grass beats water and volt; water beats fire; volt beats water), and moves can burn, root, stun or soak. HP and charges carry into the next fight.
-- **Camp.** Mira, by the fire, rests your party. Rowan, north of her, gives guidance. The scarecrow in the garden hands out free capsules now and then.
+- **Battles.** Each species has four moves: an unlimited Strike and three with charges. Elements matter (fire beats grass; grass beats water and volt; water beats fire; volt beats water), and moves can burn, root, stun or soak. HP and charges carry into the next fight. Creatures gain XP from battles and captures and level up to 10: more HP and damage, and an extra charge at levels 4 and 7.
+- **Camp.** Mira, by the fire, rests your party. Rowan, north of her, gives guidance. The scarecrow in the garden hands out 3 free capsules every 4 hours; you start with 3 more.
 - **Trainers.** Kade at the meadow's edge and Nessa by the pond fight with teams of three. Beating one gives your wallet a 12 WILD bounty.
 - **Bramble's trading post.** BUY capsules, poultices and tonics: your wallet sends the WILD. SELL a creature to Bramble for WILD. SKINS sells Halloween looks you wear on the map.
 - **Market.** Trade WILD and ERA at the game's vaults: PRICE shows what a trade gets, TRADE asks your wallet to make it.

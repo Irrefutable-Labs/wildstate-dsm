@@ -3,7 +3,7 @@
 Wildstate stays an ordinary Web2 game. Walking, encounters, battles, dialogue and healing run on the game server and never touch DSM. The game plugs into DSM: its server has a DSM account of its own, and each player connects their DSM wallet to it. What a player owns is an object in their wallet:
 
 - **WILD**, the game's coin: an object of fixed supply (1,000,000) that the game's account issued. The account gives players WILD from it: 10 after connecting, 5 for a victory, 12 for beating a trainer.
-- **Creatures**: each caught creature is an object of supply one, which the game's account issues at the capture and gives to the player's wallet. Its committed policy names the game's account as issuer, plus the species and the capture number. Its policy commitment (its anchor) is the creature's identity. HP, XP and charges are game data keyed by that identity.
+- **Creatures**: each caught creature is an object of supply one, which the game's account issues at the capture and gives to the player's wallet. Its committed policy names the game's account as issuer, plus the species and the capture number. Its policy commitment (its anchor) is the creature's identity. HP, XP and charges are game data keyed by that identity. The game's account also publishes the creature's state (species, XP, HP, charges) as a signed DSM object under its anchor, chained from a level-1 birth record: once at issuance, and again before the creature is fielded in a staked match, where wallets check the teams against it. The game's own record stays the source of truth for play.
 - **The market**: five WILD/ERA SoFi vaults the game's account funds in equal slices. The game's account prices a trade from the vaults' public state; the player's wallet carries out an ordinary SoFi trade (multi-hop when the route needs it).
 - **Staked matches**: each player's wallet locks its own stake for the match, and a pinned program (DSM's `wildstate-duel`, vendored in `src/vendor/wildstate-duel`) decides the match from both wallets' signed moves (SoFi S22). The winner's wallet collects both stakes. The game relays; it decides nothing.
 
@@ -35,11 +35,11 @@ Requests that spend nothing (proofs, accepts, contact lookups, every move of a m
 
 The relay between wallet and game is transport, never evidence (A11). Every request has two answers: the wallet's word (its outcome), and the fact the game's own account established (`connect.app.status`). The game acts only on the fact:
 
-- **a capsule**, or any item Bramble sells, only when the game's account accepted the WILD the wallet sent. A wallet saying it paid grants nothing.
+- **a capsule**, or any item or skin Bramble sells, only when the game's account accepted the WILD the wallet sent. A wallet saying it paid grants nothing.
 - **coins and the roster** only from owns proofs. The game's account verifies each one: it walks the wallet's economic root at the proven position and recomputes that root from each Sparse Merkle path. A proof counts only while the wallet's next register cell is empty at its leader.
 - **a creature delivery**: the wallet first accepts the object (it re-hashes the policy to the anchor and checks the issuer is the game), then the game's account gives it.
 
-The game's reducer never becomes a second ledger: a victory credits no coins, and an item comes only with a payment fact, used once. Coins and the roster follow what the wallet proved it owns. A creature a player sends to another wallet leaves their party and joins the other player's, its game data travelling with its anchor.
+The game's reducer never becomes a second ledger: a victory credits no coins, and a bought item or skin comes only with a payment fact, used once (`grant-item`, `grant-skin`). The free capsules (3 to start, 3 from the scarecrow every 4 hours) are game items. Coins and the roster follow what the wallet proved it owns. A creature a player sends to another wallet leaves their party and joins the other player's, its game data travelling with its anchor.
 
 ## The overlay
 
