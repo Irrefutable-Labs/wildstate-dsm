@@ -393,10 +393,10 @@ watch(() => [props.state.revision, props.error], async () => {
           <code class="wallet-id">{{ state.holder }}</code>
         </section>
         <div class="wallet-grid">
-          <section class="wallet-stat"><small class="px lbl">WILD BALANCE</small><b class="wallet-value">✦ {{ wallet }}</b></section>
+          <section class="wallet-stat"><small class="px lbl">WILD OWNED</small><b class="wallet-value">✦ {{ wallet }}</b></section>
           <section class="wallet-stat"><small class="px lbl">CREATURE OBJECTS</small><b class="wallet-value">{{ state.creatures.filter(c => c.anchor).length }} / {{ state.creatures.length }}</b></section>
         </div>
-        <p class="wallet-note">Your coins and creatures live in your DSM wallet. These are its verified holdings.</p>
+        <p class="wallet-note">Your coins and creatures are objects in your DSM wallet. These numbers come from its proofs of what it owns.</p>
         <div class="wallet-grid">
           <section class="wallet-stat"><small class="px lbl">GAME REVISION</small><b class="wallet-value">{{ state.revision }}</b></section>
           <section class="wallet-stat"><small class="px lbl">LAST COMMAND</small><code class="wallet-id">{{ state.commandIds.at(-1)?.split('/').pop() ?? '—' }}</code></section>

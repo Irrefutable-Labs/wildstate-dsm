@@ -3,9 +3,9 @@
  * Bramble's Trading Post, as the design's Shop mobile page lays it out: the
  * interior art, Bramble's line, the BUY / SELL board, a quantity and the
  * confirm. Every number on it is the server's: the board shows the game state
- * and the wallet balance the last holdings proof read. A purchase is the
- * wallet's payment, granted once the game's account accepted it; a sale is the
- * creature's state object moving to the game's account, paid for after.
+ * and what the wallet owns, as its last proof read. A purchase is WILD the
+ * wallet sends, granted once the game's account accepted it; a sale is the
+ * creature, an object, sent to the game's account and paid for after.
  */
 import { computed, inject, onMounted, onUnmounted, ref, watch } from 'vue';
 import { SKINS, SKIN_NAMES, SPECIES, displayName, level, maxHp, salePrice, skinPicture, SHOP_QTY_MAX, type GameState, type ShopItemId, type Skin } from '../domain/game';

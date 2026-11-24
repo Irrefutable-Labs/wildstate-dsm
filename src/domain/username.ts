@@ -1,6 +1,6 @@
 /**
  * Player identity in the lobby. The DSM wallet identity (its Base32 account id) is the canonical
- * key: profile, rating, history, match eligibility and escrow all hang off it. A username is a
+ * key: profile, rating, history, match eligibility and stakes all hang off it. A username is a
  * plain, unique, human-friendly label bound to that identity; it can change without touching any
  * of them. Lookups accept either: a name resolves to its identity, an exact identity resolves to
  * itself.

@@ -32,10 +32,10 @@ Set the repository variable VITE_GAME_HOST. Run the Android APK workflow with th
 
 Local release builds use WILDSTATE_KEYSTORE_PATH (an absolute file path), plus the same password/alias variables. Run `VITE_GAME_HOST=<public game server> npm run android:release`. The Android package is org.deterministicstatemachine.wildstate. Increment WILDSTATE_VERSION_CODE for each distributed update.
 
-## Vercel deployment status
+## The Vercel frontend
 
 Vercel serves the web frontend at https://wildstate-dsm.vercel.app/; the APK does not use it. The live RPGJS backend and the game's DSM account run separately on the existing cloud fleet with persistent room and profile storage. `VITE_GAME_HOST` selects the public backend address at frontend build time; no account keys belong in browser settings.
 
-The game repository is https://github.com/cryptskii/wildstate-dsm. See [production hosting](../deploy/README.md) for the exact cloud layout, network boundaries, and activation status. Public play and a public APK remain pending until the backend's public connection and wallet workflow are verified.
+The game repository is https://github.com/Irrefutable-Labs/wildstate-dsm. See [production hosting](../deploy/README.md) for the exact cloud layout, network boundaries, and where production stands. Public play and a public APK remain pending until the backend's public connection and wallet workflow are verified.
 
 References: https://developer.android.com/develop/ui/views/layout/webapps/webview, https://developer.android.com/studio/publish/app-signing, https://vercel.com/docs/functions/websockets.

@@ -148,9 +148,9 @@ const panels = new Map<string, PanelData>();
 const screens = new Map<string, unknown>();
 /** What each page's screens do on an event, by page id and event. */
 const handlers = new Map<string, (d: Record<string, unknown>) => void>();
-/** What a page's DSM panel says went wrong (holdings proofs are not part of these fixtures). */
+/** What a page's DSM panel says went wrong (proofs of what a wallet owns are not part of these fixtures). */
 const failures = (p: Page) => (panels.get(p.id)?.entries ?? [])
-  .filter((e) => e.tone === 'fail' && !e.title.startsWith('Proving your holdings')).map((e) => `${e.title}: ${e.detail}`);
+  .filter((e) => e.tone === 'fail' && !e.title.startsWith('Proving what you own')).map((e) => `${e.title}: ${e.detail}`);
 const tokenOf = new Map<string, string>();
 
 let n = 0;

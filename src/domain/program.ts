@@ -2,7 +2,7 @@
  * The staked-match program, as the game server runs it: DSM's `wildstate-duel` outcome program
  * (crates/wildstate-duel), compiled to WebAssembly and vendored in src/vendor/wildstate-duel.
  * Every player-vs-player turn is resolved by these compiled rules, so a match's screen and the
- * escrow that settles it can never disagree. Wild and trainer battles stay on src/domain/duel.ts.
+ * stakes it settles can never disagree. Wild and trainer battles stay on src/domain/duel.ts.
  *
  * Objects cross into the program as their canonical bytes; the game keeps them as Base64 in its
  * own record (Web2 game data). The program's views of those bytes are display only.
@@ -39,7 +39,7 @@ export type ActionView = { side: Side; played: MoveView; dmg: number; multX4: nu
 export type EventView = { side: Side; kind: 'faint' | 'switch'; teamIndex: number };
 export type LogView = { turn: number; first: Side | null; actions: ActionView[]; events: EventView[]; end: WinnerView | null };
 
-/** An issued creature's anchor: its DSM identity, the policy commitment of its supply-one token. */
+/** An issued creature's anchor: its DSM identity, the policy commitment of its supply-one object. */
 export function anchorBytes(c: Creature): Bytes {
   if (c.anchor === null) throw new Error(`creature ${c.id} has not been issued`);
   return fromB32(c.anchor);

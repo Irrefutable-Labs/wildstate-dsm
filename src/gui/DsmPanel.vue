@@ -51,7 +51,7 @@ const seconds = (ms?: number) => (ms === undefined ? '' : `${(ms / 1000).toFixed
       </header>
       <div class="summary">
         <span :title="wallet ?? 'Connect your wallet'">{{ wallet ? `Wallet ${wallet.slice(0, 8)}…` : 'Wallet connecting' }}</span>
-        <span class="holdings">{{ coins ?? 'Holdings pending' }}<template v-if="era"> · {{ era }}</template></span>
+        <span class="holdings">{{ coins ?? 'Owned: proof pending' }}<template v-if="era"> · {{ era }}</template></span>
         <span v-if="provenAt" class="proof" :title="`Verified at position ${provenAt}`">Verified</span>
       </div>
       <ol class="feed" aria-label="Recent activity">

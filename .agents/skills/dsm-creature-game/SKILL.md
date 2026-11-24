@@ -19,7 +19,7 @@ Keep game code in its independent application. Change DSM backend code only when
 
 Every persistent command identifies its holder, affected creature/battle/campaign instance, expected parent coordinate, and consumed resources. The reducer computes results from pinned rules (species tables, move tables, element chart, status definitions) and validated evidence. A client supplies ids and choices only; it never supplies damage, multipliers, charge counts, or status outcomes. A root or signature alone does not establish transition validity.
 
-The game runs on DSM only: a player connects a wallet before play, and there is no local mode. What the player owns (coin, creatures) is a projection of verified DSM holdings; the reducer never mints or spends it. A DSM task that has not completed is pending work, retried or surfaced, never replaced by a local result.
+The game runs on DSM only: a player connects a wallet before play, and there is no local mode. What the player owns (coin, creatures) is a projection of what their DSM wallet proved it owns; the reducer never issues or spends it. A DSM task that has not completed is pending work, retried or surfaced, never replaced by a local result.
 
 DSM wire and accepted state use the normative binary codec and domain-separated hashes. Do not implement a second cryptographic authority in TypeScript or call JSON snapshots DSM commitments. Keep game content configuration and local development saves outside protocol authority.
 

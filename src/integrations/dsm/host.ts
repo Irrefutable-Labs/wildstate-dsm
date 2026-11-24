@@ -86,8 +86,18 @@ export class DsmHost {
   private async authorization(): Promise<string> {
     // Node only: the secret lives on the game server's disk.
     const { readFile } = await import('node:fs/promises');
-    const secret = (await readFile(this.secretFile, 'utf8')).trim();
-    if (secret.length === 0) throw new HostError(`${this.secretFile} holds no ingress secret`);
+    let secret = '';
+    try {
+      secret = (await readFile(this.secretFile, 'utf8')).trim();
+    } catch (e) {
+      // The path and the file system's words stay on the server's own log; a player sees only that the account is unreachable.
+      console.error(`[dsm] the ingress secret file could not be read: ${this.secretFile}: ${String(e)}`);
+      throw new HostError('the game account ingress secret is unavailable');
+    }
+    if (secret.length === 0) {
+      console.error(`[dsm] the ingress secret file is empty: ${this.secretFile}`);
+      throw new HostError('the game account ingress secret is unavailable');
+    }
     return `Bearer ${secret}`;
   }
 
@@ -161,7 +171,7 @@ export class DsmHost {
     return payload.value;
   }
 
-  /** A token of the game's: its whole supply is the game account's at creation. */
+  /** An object the game issues (`token.create`): its whole supply is the game account's at first. */
   async createToken(args: {
     ticker: string;
     alias: string;
@@ -247,7 +257,7 @@ export class DsmHost {
     return payload.value;
   }
 
-  /** An online transfer from the game's account (`wallet.sendSmart`). */
+  /** The game's account gives a wallet an object, online (`wallet.sendSmart`). */
   async send(to: Bytes, ticker: string, amount: string, memo: string): Promise<void> {
     await this.invoke(
       'wallet.sendSmart',
@@ -257,7 +267,7 @@ export class DsmHost {
 
   /**
    * An offer this account signs. `freeRequests` is how many requests that spend
-   * nothing the game asks to make over the session's life: the player's grant
+   * nothing the game asks to make over the connection's life: the player's grant
    * names it, and past it each request waits for the player (DSM SA-78).
    */
   async offer(
@@ -320,7 +330,7 @@ export class DsmHost {
     return payloadOf.value;
   }
 
-  /** What the account established about request `seq`. `recorded` puts the check in the record. */
+  /** The result of request `seq`: what the account established about it. `recorded` puts the check in the record. */
   async status(sessionId: Bytes, seq: bigint, recorded = false): Promise<pb.ConnectAppStatusV1> {
     const reply = this.connectReply(
       'connect.app.status',

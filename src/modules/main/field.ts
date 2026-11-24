@@ -104,7 +104,7 @@ export function commit(player: RpgPlayer, command: Command, revision: number) {
   return next;
 }
 // DSM tasks change the game state through the reducer, as every command does.
-// One can land mid-battle (a holdings proof, a delivered capture); the battle screen sends the
+// One can land mid-battle (a proof of what the wallet owns, a delivered capture); the battle screen sends the
 // revision it holds with every action, so it is handed the new one.
 useCommit((player, command) => {
   const next = commit(player, command, session(player).read().revision);

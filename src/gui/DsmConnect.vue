@@ -14,14 +14,14 @@ const props = defineProps<{ code: string; status: string; resumeToken?: string |
 const interact = inject<(id: string, event: string, data: unknown) => void>('rpgGuiInteraction')!;
 
 // A browser that connected before hands the server its resume token: the
-// server resumes that session if the game's account still holds it.
+// server resumes that connection if the game's account still holds it.
 // The login that goes with this code: kept, so a page the phone froze while
 // the player was in the wallet picks up the connection when it comes back.
 keepResumeToken(() => props.resumeToken);
 
 // The phone freezes this page while the player approves in the wallet, and the
 // game server lets its connection go. Coming back, the page joins again; its
-// login token picks up the connection the wallet made.
+// resume token picks up the connection the wallet made.
 let hiddenAt: number | null = null;
 function onVisibility() {
   if (document.visibilityState === 'hidden') {
@@ -65,7 +65,7 @@ async function copy() {
     <section class="card" aria-label="Connect your DSM wallet">
       <div class="ws-logo brand" v-html="LOGO_HTML"></div>
       <h1>Connect your DSM wallet</h1>
-      <p class="lead">Wildstate keeps running as a normal game. What you catch and earn lives in your wallet.</p>
+      <p class="lead">Wildstate keeps running as a normal game. What you catch and earn is yours: objects in your wallet.</p>
       <!-- On this phone: the link opens the DSM wallet with the code filled in. -->
       <a v-if="code" class="open" :href="code">OPEN DSM WALLET</a>
       <p v-if="code" class="or">On another device: scan this code.</p>
@@ -75,7 +75,7 @@ async function copy() {
       </div>
       <ol>
         <li>On this phone, tap <b>OPEN DSM WALLET</b>. On another, open DSM, then <b>APPS</b> → <b>SCAN CODE</b>.</li>
-        <li>Read what Wildstate asks for: receive its creatures, take payment in WILD, swap WILD and ERA, see these holdings.</li>
+        <li>Read what Wildstate asks for: accept its creatures, send it WILD, trade WILD and ERA, prove what you own, stake on arena matches, see your contacts.</li>
         <li>Approve. After that the game asks your wallet itself; anything else waits on your phone.</li>
       </ol>
       <p class="status" aria-live="polite">{{ status }}</p>

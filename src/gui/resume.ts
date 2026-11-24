@@ -1,6 +1,6 @@
 import { watch } from 'vue';
 
-/** Where this browser keeps its Wildstate login: a token the game server issued at connect. */
+/** Where this browser keeps its Wildstate resume token, which the game server issued at connect (Web2 only). */
 export const RESUME_KEY = 'wildstate.dsm.resume';
 
 /** Keeps the game's login for this browser as the server issues it, so reopening the game resumes the connection. */

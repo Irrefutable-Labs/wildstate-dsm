@@ -1,7 +1,7 @@
 import type { Readiness } from '../gameServer';
 import { logo } from './logo';
 
-const RELEASES = 'https://github.com/cryptskii/wildstate-dsm/releases/latest';
+const RELEASES = 'https://github.com/Irrefutable-Labs/wildstate-dsm/releases/latest';
 /** The Android app serves its bundled client from WebViewAssetLoader's origin. */
 const inApp = () => window.location.hostname === 'appassets.androidplatform.net';
 
@@ -11,7 +11,7 @@ export function showNotice(state: Exclude<Readiness, 'ok'>): void {
   const [title, detail, label, action]: [string, string, string, string | (() => void)] =
     state === 'unreachable' ? ["Wildstate can't reach the game right now.", 'Check your connection and try again.', 'Try again', reload]
     : state === 'server-behind' ? ['Wildstate is being updated.', 'Try again in a few minutes.', 'Try again', reload]
-    : inApp() ? ['A new version of Wildstate is out.', 'Install it to keep playing. Your wallet holdings and saved progress are kept.', 'Get the update', RELEASES]
+    : inApp() ? ['A new version of Wildstate is out.', 'Install it to keep playing. What your wallet owns and your saved progress are kept.', 'Get the update', RELEASES]
     : ['Wildstate has been updated.', 'Reload to keep playing.', 'Reload', reload];
 
   const card = document.createElement('section');

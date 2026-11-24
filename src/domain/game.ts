@@ -97,7 +97,7 @@ const statusSchema = z.object({ id: z.enum(['burn', 'root', 'stun', 'soaked']), 
 const creatureSchema = z.object({
   id: z.string().min(1), species: speciesSchema, nick: z.string().max(NICK_MAX), hp: natural.max(MAX_HP), xp: natural,
   charges: z.record(z.string(), natural.max(7)), guard: z.boolean(), statuses: z.array(statusSchema).max(4),
-  /** DSM ledger: the anchor (Base32) of the state object that is this creature, once the game issued it. */
+  /** DSM ledger: the anchor (Base32) of the object that is this creature, once the game issued it. */
   anchor: z.string().min(1).nullable(),
 });
 const battleSchema = z.object({
@@ -142,8 +142,8 @@ export const lookPortrait = (look: Look) => (look === 'classic' ? 'player' : `pl
 export const stateSchema = z.object({
   scarecrowReadyAt: natural.default(0),
   rules: z.literal('creatures-v4'), holder: z.string().min(1), revision: natural,
-  // Coins and creatures are owned in the player's DSM wallet: `coins` is the verified
-  // holdings projection, and the reducer never credits or debits it.
+  // Coins and creatures are owned in the player's DSM wallet: `coins` is a projection of what
+  // the wallet proved it owns, and the reducer never credits or debits it.
   nextEncounter: natural, nextCast: natural, creatures: z.array(creatureSchema).min(1), lead: natural,
   inventory: z.object({ capsules: natural, rod: z.boolean(), poultice: natural, tonic: natural, map: natural }), coins: natural,
   campaign: z.object({ instance: z.string(), branch: z.enum(['unselected', 'sanctuary', 'rangers']) }),
@@ -197,11 +197,11 @@ export type Command =
   | { type: 'use-item'; item: UsableItem; creatureId: string }
   /** Challenge a trainer on the map. */
   | { type: 'challenge'; trainer: string }
-  /** DSM ledger: creature `creatureId` is the state object `anchor`. */
+  /** DSM ledger: creature `creatureId` is the object `anchor`. */
   | { type: 'bind-creature'; creatureId: string; anchor: string }
   /**
-   * DSM ledger: verified holdings. `coins` is the coin balance; `held` the creature anchors
-   * held; `inFlight` the anchors the game sent this wallet that no proof shows yet.
+   * DSM ledger: what the wallet owns, verified. `coins` is the WILD it owns; `held` the creature
+   * anchors it owns; `inFlight` the anchors the game sent this wallet that no proof shows yet.
    */
   | { type: 'holdings'; coins: number; held: string[]; inFlight: string[] }
   /** DSM ledger: a creature the wallet holds that this state does not: it joins the party. */

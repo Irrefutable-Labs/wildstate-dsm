@@ -24,7 +24,7 @@
     {
       "id": "M5",
       "title": "Get test ERA",
-      "task": "Claim from Tokens → Faucet, then make your second claim. Time both, from tap to balance. Was the second faster, and by how much? Any glitches?"
+      "task": "Claim from Tokens → Faucet, then make your second claim. Time both, from tap until the ERA arrives. Was the second faster, and by how much? Any glitches?"
     },
     {
       "id": "M6",
@@ -34,7 +34,7 @@
     {
       "id": "M7",
       "title": "Switch looks",
-      "task": "In Settings, try Modern and DGen, dark and light, and Simple mode on and off. Balances, contacts and history must match in every look."
+      "task": "In Settings, try Modern and DGen, dark and light, and Simple mode on and off. What you own, your contacts and your history must match in every look."
     },
     {
       "id": "G1",
@@ -134,18 +134,18 @@
       "missions": [
         {
           "id": "M14",
-          "title": "Create your own token",
-          "task": "Create a token, send it out, have contacts pass it on. The total must never change."
+          "title": "Issue your own object",
+          "task": "Issue one with Tokens → Create Token, send it out, have contacts pass it on. The total must never change."
         },
         {
           "id": "G10",
           "title": "Trade WILD",
-          "task": "In the market, swap WILD for ERA and back. Both settle in your wallet as quoted."
+          "task": "In the market, trade WILD for ERA and back. Both settle in your wallet as priced."
         },
         {
           "id": "M15",
-          "title": "Adopt a token",
-          "task": "A contact adds your token with Tokens → Add Token, using its policy anchor."
+          "title": "Adopt an object",
+          "task": "A contact adds your object with Tokens → Add Token, using its policy anchor."
         },
         {
           "id": "G11",
@@ -165,7 +165,7 @@
         {
           "id": "M17",
           "title": "Trade",
-          "task": "In Trade, swap one token for another, then open and close a small liquidity position."
+          "task": "On the Trade screen, trade one object for another, then open and close a small liquidity position."
         },
         {
           "id": "G13",
@@ -174,8 +174,8 @@
         },
         {
           "id": "M18",
-          "title": "Escrow vault",
-          "task": "Lock a small stake with a contact, set two outcomes, decide one and release it."
+          "title": "Stake a match",
+          "task": "Lock a small stake with a contact (Trade → Escrow), set two outcomes, decide one and release it."
         },
         {
           "id": "M19",
