@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { lockingMatch, type Match } from '../src/domain/match';
-import { creatureState, b64 } from '../src/domain/program';
+import { creatureState, b64, startCommitment } from '../src/domain/program';
 import { newCreature, type Creature } from '../src/domain/game';
 
 // The DSM side is mocked: what is checked here is what the game asks each wallet, in what order,
@@ -30,7 +30,11 @@ vi.mock('../src/modules/main/dsm', () => ({
   web2: vi.fn(),
   walletWaiting: () => null,
   walletIdentity: async (w: string) => ({ genesis: bytes32(`genesis|${w}`), deviceId: bytes32(`device|${w}`), signingKey: bytes32(`signing|${w}`) }),
-  sessionKey: vi.fn(async (p: { id: string }) => { dsm.calls.push(`key ${p.id}`); return bytes32(`session|${p.id}`); }),
+  // A wallet names its key and commits its start entropy; it opens that entropy with its ready.
+  sessionKey: vi.fn(async (p: { id: string }) => {
+    dsm.calls.push(`key ${p.id}`);
+    return { key: bytes32(`session|${p.id}`), commitment: startCommitment(bytes32(`entropy|${p.id}`)) };
+  }),
   publishedState: vi.fn(async (c: Creature) => { dsm.calls.push(`state ${c.id}`); return creatureState(c, anchorOf(c)); }),
   holdingsProof: vi.fn(async (p: { id: string }, anchors: Uint8Array[]) => { dsm.calls.push(`prove ${p.id} ${anchors.length}`); return { proves: p.id }; }),
   lockDuel: vi.fn(async (p: { id: string }, _setup: Uint8Array, side: string, stake: number, opponent: string, theirs: { proves: string }, counterpart?: string) => {
@@ -38,10 +42,10 @@ vi.mock('../src/modules/main/dsm', () => ({
     if (dsm.failLockFor === p.id) throw new Error('the wallet holds too little WILD');
     return { vault: `vault-${side}`, cell: 'CELL' };
   }),
-  readyDuel: vi.fn(async (p: { id: string }, cell: string, theirs?: Uint8Array) => {
-    dsm.calls.push(`ready ${p.id} on ${cell}${theirs ? ` with ${new TextDecoder().decode(theirs)}` : ''}`);
+  readyDuel: vi.fn(async (p: { id: string }, cell: string, theirs?: { ready: Uint8Array; reveal: Uint8Array }) => {
+    dsm.calls.push(`ready ${p.id} on ${cell}${theirs ? ` with ${new TextDecoder().decode(theirs.ready)}` : ''}`);
     if (dsm.readyHangs === p.id) return new Promise(() => {});
-    return { readySignature: new TextEncoder().encode(`ready-${p.id}`), started: theirs !== undefined };
+    return { readySignature: new TextEncoder().encode(`ready-${p.id}`), reveal: bytes32(`entropy|${p.id}`), started: theirs !== undefined };
   }),
   withdrawDuel: vi.fn(async (p: { id: string }, cell: string) => { dsm.calls.push(`withdraw ${p.id} on ${cell}`); return dsm.withdrawFinds; }),
   signEntry: vi.fn(async (p: { id: string }, _cell: string, preceding: { entry: Uint8Array }[], entry: Uint8Array) => {

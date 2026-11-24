@@ -13,13 +13,14 @@
  *
  * The program's rules: a level tie's first actor comes from the tiebreak seed, a move the rules
  * cannot play (or bytes that are no move) is a pass, Resign hands the other side the win, and
- * after 60 turns more team HP wins, equal HP going to the seed. There is never a tie.
+ * after 60 turns more team HP wins, equal HP going to the seed. There is never a tie. The seed is
+ * derived from both sides' start entropy, committed in the setup and opened by the Start.
  */
 import type { ExchangeEntry } from './duel';
 import { ITEMS, SPECIES, type Creature, type UsableItem } from './game';
 import {
   ITEM_IDS, b64, encodeMove, playTurn, startState, stateView, unb64,
-  type End, type LogView, type MoveView, type Side, type StateView,
+  type End, type LogView, type MoveView, type Reveals, type Side, type StateView,
 } from './program';
 
 export type { Side } from './program';
@@ -87,6 +88,8 @@ export interface MatchEscrow {
   cell: string | null;
   /** A's ready signature (Base64), relayed to B, whose wallet then writes the Start. */
   ready: string | null;
+  /** A's start entropy (Base64), handed out with its ready and relayed to B with it (SoFi S33). */
+  reveal: string | null;
   /** What the start cell holds, as the game's account read it. */
   start: 'open' | 'started' | 'withdrawn';
   /** Every entry signed so far, in order: the transcript the winner settles. */
@@ -105,6 +108,8 @@ export interface MatchEscrow {
 export interface MatchProgram {
   /** The canonical setup both wallets lock: the program, the nonce, both sides and their teams. */
   setup: string;
+  /** Both sides' start entropy (Base64), once the match's Start opened it; the state starts from it. */
+  reveals: { a: string; b: string } | null;
   /** The program's state after the last turn. */
   state: string;
   /** Each turn's openings exactly as revealed. */
@@ -130,15 +135,23 @@ export function lockingMatch(id: string, stake: number, a: Entrant, b: Entrant):
   });
   return {
     id, stake, phase: 'locking', turn: 0, deadline: 0, a: side(a), b: side(b), log: [], events: [], winner: null, reason: null,
-    program: { setup: '', state: '', turns: [] },
+    program: { setup: '', reveals: null, state: '', turns: [] },
   };
 }
 
-/** The match's canonical setup, whose teams are its sides' creatures in order: the program's start state. */
-export function loadSetup(m: Match, setup: Uint8Array): void {
-  const state = startState(setup);
+/** The match's canonical setup, held before its Start: no state yet, for the tiebreak is not derived yet. */
+export function holdSetup(m: Match, setup: Uint8Array): void {
+  m.program = { setup: b64(setup), reveals: null, state: '', turns: [] };
+}
+
+/**
+ * The match's canonical setup, whose teams are its sides' creatures in order, started on both
+ * sides' start entropy: the program's start state.
+ */
+export function loadSetup(m: Match, setup: Uint8Array, reveals: Reveals): void {
+  const state = startState(setup, reveals);
   const view = stateView(state);
-  m.program = { setup: b64(setup), state: b64(state), turns: [] };
+  m.program = { setup: b64(setup), reveals: { a: b64(reveals.a), b: b64(reveals.b) }, state: b64(state), turns: [] };
   project(m.a, view, 'a'); project(m.b, view, 'b');
 }
 
@@ -146,9 +159,9 @@ export function loadSetup(m: Match, setup: Uint8Array): void {
  * A match from its canonical setup, whose teams are `a`'s and `b`'s creatures in order (the setup
  * holds their states; the creatures give them their ids and names on screen).
  */
-export function startMatch(id: string, stake: number, setup: Uint8Array, a: Entrant, b: Entrant, now: number): Match {
+export function startMatch(id: string, stake: number, setup: Uint8Array, reveals: Reveals, a: Entrant, b: Entrant, now: number): Match {
   const m = lockingMatch(id, stake, a, b);
-  loadSetup(m, setup);
+  loadSetup(m, setup, reveals);
   m.phase = 'battle';
   m.deadline = now + TURN_MS;
   return m;

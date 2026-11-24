@@ -10,6 +10,7 @@ The public frontend is https://wildstate-dsm.vercel.app/ and the repository is h
   Caddyfile
   .env                   # mode 600: private map publication token and public endpoints
   account/               # mode 700, uid/gid 10001: DSM SDK state, mnemonic, relay TLS identity
+  ingress/               # mode 700, uid/gid 10001: the account host's ingress secret alone; the game mounts only this, read-only
   game/                  # mode 700, uid/gid 10001
     dsm-game.json        # game profiles, WILD policy and vault references; Web2 data
     rooms.sqlite         # RPGJS room/session state
@@ -27,6 +28,7 @@ The account uses the committed DSM integration checkout revision `9723f2cca`, wh
 ## Network boundaries
 
 - `127.0.0.1:8787`: private DSM protobuf ingress. Not exposed publicly or passed to the frontend.
+  Every call carries the host's ingress secret, which the host writes to `ingress/ingress-token` at each launch (`--ingress-secret-dir /ingress`). The game container mounts `ingress/` read-only and nothing of `account/`, and re-reads the secret for every call, so a host restart needs no game restart. The account image must be built from a DSM revision whose `dsm-app-host` takes `--ingress-secret-dir`.
 - `127.0.0.1:3000`: private RPGJS listener, reached through Caddy.
 - Public `443`: HTTPS and game WebSockets at `wildstate.34.58.75.224.sslip.io`.
 - Public `80`: HTTPS redirect and certificate issuance.

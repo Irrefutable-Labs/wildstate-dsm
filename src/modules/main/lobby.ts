@@ -17,13 +17,13 @@ import { SPECIES, GameError, displayName, fieldedTeam, level, maxCharges, maxHp,
 import { befriend, claimUsername, freshProfile, resolvePlayer, shownName, unfriend, HISTORY_MAX, RENAME_COOLDOWN_MS, type Directory, type MatchSummary } from '../../domain/username';
 import { pair, window, validStake, STAKE_TIERS, MAX_STAKE, type Ticket } from '../../domain/matchmaker';
 import { choose, expire, forfeit, loadSetup, lockingMatch, other, TURN_MS, type Match, type Side } from '../../domain/match';
-import { creatureState, encodeSetup } from '../../domain/program';
+import { creatureState, encodeSetup, startCommitment, type Reveals } from '../../domain/program';
 import { fromB32 } from '../../integrations/dsm/host';
 import {
   advance, chooseStaked, findLateLock, freshEscrow, lockMatch, matchNonce, passIfDue, payOut, resignStaked, withdrawAndRefund,
   type StakedEvents,
 } from './staked';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { rate } from '../../domain/rating';
 
 /** Stakes are escrowed on DSM and decided by the program (S22): each wallet locks its own, and the winner's collects both. */
@@ -311,14 +311,19 @@ function anchorOf(c: Creature): Uint8Array {
 
 /**
  * A free match's setup: the players' wallets and their own keys (which sign nothing in a free
- * match), the teams as prepared. The program resolves it exactly as it would a staked one.
+ * match), the teams as prepared, and start entropy the game draws for each side, since no stake
+ * rides on the seed. The program resolves it exactly as it would a staked one.
  */
-async function freeSetup(m: Match): Promise<Uint8Array> {
+async function freeSetup(m: Match): Promise<{ setup: Uint8Array; reveals: Reveals }> {
+  const reveals: Reveals = { a: new Uint8Array(randomBytes(32)), b: new Uint8Array(randomBytes(32)) };
   const side = async (s: Side) => {
     const id = await walletIdentity(m[s].wallet);
-    return { genesis: id.genesis, deviceId: id.deviceId, sessionKey: id.signingKey, poultice: m[s].items.poultice, tonic: m[s].items.tonic, team: m[s].team.map((c) => creatureState(c, anchorOf(c))) };
+    return {
+      genesis: id.genesis, deviceId: id.deviceId, sessionKey: id.signingKey, startCommitment: startCommitment(reveals[s]),
+      poultice: m[s].items.poultice, tonic: m[s].items.tonic, team: m[s].team.map((c) => creatureState(c, anchorOf(c))),
+    };
   };
-  return encodeSetup(matchNonce(m), await side('a'), await side('b'));
+  return { setup: encodeSetup(matchNonce(m), await side('a'), await side('b')), reveals };
 }
 
 async function begin(aWallet: string, bWallet: string, stake: number) {
@@ -362,7 +367,8 @@ async function begin(aWallet: string, bWallet: string, stake: number) {
     return;
   }
   try {
-    loadSetup(m, await freeSetup(m));
+    const free = await freeSetup(m);
+    loadSetup(m, free.setup, free.reveals);
     m.phase = 'battle';
     m.deadline = Date.now() + TURN_MS;
   } catch (err) {

@@ -1,5 +1,5 @@
 # One persistent production account, independent of the storage-node service.
-# Create ./account owned by uid/gid 10001 with mode 700 before starting.
+# Create ./account and ./ingress owned by uid/gid 10001 with mode 700 before starting.
 # ./network holds the pinned dsm_env_config.toml and ca.crt, both public files.
 services:
   account:
@@ -14,10 +14,15 @@ services:
     tmpfs: ['/tmp:size=64m,mode=1777']
     volumes:
       - ./account:/data
+      # The ingress secret alone, apart from the account's keys and mnemonic:
+      # the game is given this directory and nothing of ./account.
+      - ./ingress:/ingress
       - ./network:/network:ro
     command:
       - --data-dir
       - /data
+      - --ingress-secret-dir
+      - /ingress
       - --env-config
       - /network/dsm_env_config.toml
       - --game-bind

@@ -4,7 +4,7 @@ import { rate, expected, START_RATING } from '../src/domain/rating';
 import { pair, window } from '../src/domain/matchmaker';
 import { createHash } from 'node:crypto';
 import { choose, expire, forfeit, startMatch, MISSES_TO_FORFEIT, TURN_MS, type Entrant, type Match } from '../src/domain/match';
-import { creatureState, encodeSetup } from '../src/domain/program';
+import { creatureState, encodeSetup, startCommitment, type Reveals } from '../src/domain/program';
 import { newCreature, type Creature } from '../src/domain/game';
 
 const A = 'MJPG8P38E3AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', B = '4BKF028R0BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB';
@@ -103,14 +103,19 @@ describe('matchmaker', () => {
 /** A setup for two entrants: fixed identities and keys, each creature under an anchor its id names. */
 const bytes32 = (text: string) => new Uint8Array(createHash('sha256').update(text).digest());
 const anchorOf = (c: Creature) => bytes32(`anchor|${c.id}`);
-function setupOf(a: Entrant, b: Entrant): Uint8Array {
-  const side = (p: Entrant) => ({
+function setupOf(a: Entrant, b: Entrant): { setup: Uint8Array; reveals: Reveals } {
+  const reveals: Reveals = { a: bytes32(`entropy|${a.wallet}`), b: bytes32(`entropy|${b.wallet}`) };
+  const side = (p: Entrant, entropy: Uint8Array) => ({
     genesis: bytes32(`genesis|${p.wallet}`), deviceId: bytes32(`device|${p.wallet}`), sessionKey: bytes32(`key|${p.wallet}`),
+    startCommitment: startCommitment(entropy),
     poultice: p.items?.poultice ?? 0, tonic: p.items?.tonic ?? 0, team: p.team.map((c) => creatureState(c, anchorOf(c))),
   });
-  return encodeSetup(bytes32(`nonce|${a.wallet}|${b.wallet}`), side(a), side(b));
+  return { setup: encodeSetup(bytes32(`nonce|${a.wallet}|${b.wallet}`), side(a, reveals.a), side(b, reveals.b)), reveals };
 }
-const match = (id: string, a: Entrant, b: Entrant, now = 0, stake = 0) => startMatch(id, stake, setupOf(a, b), a, b, now);
+const match = (id: string, a: Entrant, b: Entrant, now = 0, stake = 0) => {
+  const { setup, reveals } = setupOf(a, b);
+  return startMatch(id, stake, setup, reveals, a, b, now);
+};
 
 describe('player-vs-player match, resolved by the program', () => {
   const team = (w: string, species: Parameters<typeof newCreature>[1][], lvl = 5) => species.map((s, i) => newCreature(`${w}/c${i}`, s, undefined, lvl));
