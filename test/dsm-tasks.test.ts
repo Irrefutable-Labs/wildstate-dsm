@@ -339,6 +339,31 @@ describe('a page that goes away mid-delivery', () => {
     ]);
     expect(first.w.economy.record.inFlight[first.holder]).toEqual([anchor]);
   });
+
+  it('…even when the page connects the other wallet at once, before the delivery is under way', async () => {
+    const first = await wallet((holder) => {
+      const s = settled(holder);
+      const anchor = b32(bytes32(`cut off at once for ${holder}`));
+      fixture.held.set(anchor, { ticker: 'TF0778', amount: 1n });
+      return { ...s, creatures: [...s.creatures, { ...initialState(holder).creatures[0], id: `${holder}/wild/0/creature`, species: 'tidefin' as const, anchor }] };
+    });
+    const anchor = first.w.economy.record.profiles[first.holder].creatures[1].anchor!;
+    first.w.economy.record.creatures[anchor] = { species: 'tidefin', serial: 778, ticker: 'TF0778' };
+    const second = await wallet(settled, true);
+    // The page resumes the first wallet's delivery (its starting coin queued behind it); the wallet takes its time accepting.
+    fixture.acceptAfter = 150;
+    const p = await first.connect('shared-page');
+    // No pause: the page switches wallets before the queued delivery runs (a slow machine's order).
+    await second.connect(p.id, p);
+    await idle();
+    fixture.acceptAfter = 5;
+    expect(fixture.sends.filter((s) => s.to === second.holder)).toEqual([]);
+    expect(fixture.sends.filter((s) => s.to === first.holder).sort((x, y) => x.ticker.localeCompare(y.ticker))).toEqual([
+      { ticker: 'TF0778', amount: '1', to: first.holder, sent: true },
+      { ticker: 'WILD', amount: '10', to: first.holder, sent: true },
+    ]);
+    expect(first.w.economy.record.inFlight[first.holder]).toEqual([anchor]);
+  });
 });
 
 describe('WILD the game owes a wallet', () => {
