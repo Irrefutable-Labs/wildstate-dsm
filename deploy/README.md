@@ -1,7 +1,21 @@
 # Wildstate production hosting
 
-The public frontend is https://wildstate-dsm.vercel.app/ and the repository is https://github.com/Irrefutable-Labs/wildstate-dsm. One persistent game server and one DSM account, the game's own, run on one host, apart from the storage nodes. That host was fleet instance `dsm-storage-node-1` (GCP `us-central1-b`, `34.58.75.224`); see [where production stands](#where-production-stands-2026-11-11) for what changed when the beta storage set moved. No public service depends on the developer's Wi-Fi.
+The game is played at **https://wildstate.148.113.137.67.sslip.io/**: one persistent game server, its browser client and one DSM account, the game's own, on the games host `dsm-games-1` (OVH Public Cloud, BHS5, `148.113.137.67`, made 2026-11-25), apart from the beta storage nodes. The same host runs Sennite: Factions' publisher and Open Boxes for DSM behind one shared HTTPS front. No public service depends on the developer's computer or Wi-Fi. The repository is https://github.com/Irrefutable-Labs/wildstate-dsm.
 
+## Where it runs now (2026-11-26)
+
+| What | Public address | On the host |
+| --- | --- | --- |
+| Browser client and game server (RPGJS, WebSockets, `/version`, `/healthz`) | `https://wildstate.148.113.137.67.sslip.io` | client files in `/opt/https/wildstate-client`, served by the shared Caddy in `/opt/https`; game container `wildstate-game-1` on `127.0.0.1:3000` |
+| The game's DSM account (`dsm-app-host`, DSM main) | wallet relay `https://148.113.137.67:8443` | container `wildstate-account-1`, ingress `127.0.0.1:8787` |
+
+- **Redeploy the game and the client:** `deploy/deploy_ovh.sh [revision]` from a checkout (committed revisions only). It builds `wildstate-game:<rev>` on the host, builds the client for `wildstate.148.113.137.67.sslip.io`, swaps both in and restarts only the game; the account and `/opt/wildstate/game` are left as they are.
+- **Compose:** `/opt/wildstate/compose.yml` (this directory's) with `compose.games.yml`, which turns this file's own Caddy off because the host's shared Caddy (`/opt/https`) serves every app there: `sudo docker compose -p wildstate -f compose.yml -f compose.games.yml <command>`.
+- **The account** was made fresh on 2026-11-25 on the current beta storage set; the first page set the economy up (13 faucet claims, WILD issued, five vaults). Nothing of the GCP account or the developer computer's copy was carried over.
+- SSH: `ssh -i ~/.ssh/dsm-deploy ubuntu@148.113.137.67`, allowed from the operator's address only (ufw). Open to anyone: 80, 443 and the relays.
+- The Vercel frontend (https://wildstate-dsm.vercel.app/) is still built for the dead GCP host; the browser client above replaces it.
+
+The sections below describe the layout the host follows (paths under `/opt/wildstate`) and the earlier GCP deployment.
 ## Layout on the server
 
 ```
