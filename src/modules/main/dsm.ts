@@ -228,6 +228,25 @@ function sessionOf(seat: Seat): Bytes {
   return seat.session;
 }
 
+/**
+ * The wallet a delivery goes to and the connection that asks it to accept: taken when the delivery
+ * is queued, never when it runs. A queued task runs later, and by then the same page may have
+ * connected another wallet; what was owed to the first goes to the first.
+ */
+type Recipient = { wallet: string; session: Bytes | null } | null;
+function recipientOf(seat: Seat): Recipient {
+  return seat.wallet !== null ? { wallet: seat.wallet, session: seat.session } : null;
+}
+/**
+ * The connection that asks `to` to accept: the page's own while it still shows that wallet (a
+ * page that reconnected the same wallet has a new one), else the one the wallet had when queued.
+ */
+function sessionFor(seat: Seat, to: NonNullable<Recipient>): Bytes {
+  const session = (seat.wallet === to.wallet ? seat.session : null) ?? to.session;
+  if (session === null) throw new Error('Your wallet is reconnecting; try again in a moment.');
+  return session;
+}
+
 /** What the player's wallet holds for their approval, if anything: nothing else moves until it is answered. */
 export function walletWaiting(player: RpgPlayer): string | null {
   return seats.get(player.id)?.waiting ?? null;
@@ -588,13 +607,19 @@ export async function connectWallet(player: RpgPlayer, bound: (state: GameState)
   web2(player, 'Profile loaded', `The game's own record for wallet ${short(seat.wallet!)}: progress, HP and XP are game data`);
   // Every creature not yet issued, then every object the account issued and still holds: a
   // delivery a restart or a lost connection cut off goes on from where it stopped.
+  const to = recipientOf(seat);
   for (const c of profile.creatures.filter((c) => c.anchor === null)) {
-    enqueue(player, `Delivering ${displayName(c)}`, () => deliverCreature(player, c.id, c.species));
+    enqueue(player, `Delivering ${displayName(c)}`, () => deliverCreature(player, c.id, c.species, to));
   }
   enqueue(player, 'Resuming deliveries', async () => {
-    for (const anchor of await onTheWay(player)) {
+    // This wallet's creatures, read when the task runs: from the page while it still shows this
+    // wallet, else from the wallet's own record, never from whichever wallet the page shows now.
+    const mine = to === null || seatOf(player).wallet === to.wallet
+      ? readState(player).creatures
+      : w.economy.record.profiles[to.wallet]?.creatures ?? [];
+    for (const anchor of await onTheWay(player, mine)) {
       const issued = w.economy.record.creatures[anchor];
-      enqueue(player, `Delivering ${SPECIES[issued.species].name} #${issued.serial}`, () => handOver(player, anchor));
+      enqueue(player, `Delivering ${SPECIES[issued.species].name} #${issued.serial}`, () => handOver(player, anchor, to));
     }
   });
   enqueue(player, 'Finding your friends', () => refreshContacts(player));
@@ -701,8 +726,9 @@ function enqueue(player: RpgPlayer, title: string, task: () => Promise<void>): v
  * connect. A delivery that already ran finds its creature issued and does nothing more.
  */
 export function deliverUnissued(player: RpgPlayer): void {
+  const to = recipientOf(seatOf(player));
   for (const c of readState(player).creatures.filter((c) => c.anchor === null)) {
-    enqueue(player, `Delivering ${displayName(c)}`, () => deliverCreature(player, c.id, c.species));
+    enqueue(player, `Delivering ${displayName(c)}`, () => deliverCreature(player, c.id, c.species, to));
   }
 }
 
@@ -829,7 +855,7 @@ async function sendFromGame(player: RpgPlayer, to: string, ticker: string, amoun
 }
 
 /** A caught creature becomes an object in the player's wallet. */
-async function deliverCreature(player: RpgPlayer, creatureId: string, species: Species): Promise<void> {
+async function deliverCreature(player: RpgPlayer, creatureId: string, species: Species, to: Recipient): Promise<void> {
   const w = await world();
   const started = Date.now();
   // Looked at when the delivery runs, not when it was queued: a page that connected again, or a
@@ -843,7 +869,7 @@ async function deliverCreature(player: RpgPlayer, creatureId: string, species: S
   }
   const anchor = await w.economy.issueCreature(species, (line) => web2(player, 'Game account', line, 'wait'), creatureId);
   commit(player, { type: 'bind-creature', creatureId, anchor });
-  await handOver(player, anchor, started);
+  await handOver(player, anchor, to, started);
   // The state it was issued in, published as its first record: what wallets read it against before a staked match.
   const issued = readState(player).creatures.find((c) => c.id === creatureId);
   if (issued) await publishedState(issued);
@@ -853,26 +879,28 @@ async function deliverCreature(player: RpgPlayer, creatureId: string, species: S
  * Objects the game's account issued for this player's creatures and still holds: on their way
  * to the wallet. What the account owns says so, not the game's record of what it meant to do.
  */
-async function onTheWay(player: RpgPlayer): Promise<string[]> {
+async function onTheWay(player: RpgPlayer, creatures?: GameState['creatures']): Promise<string[]> {
   const w = await world();
   const held = new Set((await w.host.balances()).filter((b) => b.available === 1n).map((b) => b.policyAnchorB32));
   // An object the account holds again after its creature left a party (its game data kept in
   // `stats`) came back to it: Bramble bought it. It is the game's, on its way to nobody, whatever
   // an older page of the wallet that sold it still shows.
-  return readState(player).creatures.flatMap((c) =>
+  return (creatures ?? readState(player).creatures).flatMap((c) =>
     c.anchor !== null && w.economy.record.creatures[c.anchor] !== undefined && held.has(c.anchor) && w.economy.record.stats[c.anchor] === undefined ? [c.anchor] : [],
   );
 }
 
 /** An issued creature object goes to the player's wallet: the wallet roots it, then the account sends it. */
-async function handOver(player: RpgPlayer, anchor: string, started = Date.now()): Promise<void> {
-  const w = await world();
+async function handOver(player: RpgPlayer, anchor: string, to: Recipient, started = Date.now()): Promise<void> {
   const seat = seatOf(player);
+  if (to === null) throw new Error('Your wallet is reconnecting; the delivery goes on when it is back.');
+  const w = await world();
   const issued = w.economy.record.creatures[anchor];
   const species = issued.species;
   const what = `${SPECIES[species].name} #${issued.serial} (${short(anchor)})`;
-  // The wallet asked to accept it is the one it goes to, whatever the page connects meanwhile.
-  const wallet = seat.wallet!;
+  // The wallet asked to accept it is the one it goes to, whatever the page connects meanwhile:
+  // both were fixed when the delivery was queued.
+  const { wallet } = to;
   // One object goes out once. Claimed before anything is awaited: two wallets' tasks never both send it.
   if (handingOver.has(anchor)) throw new Error(`${what} is already being handed over; it is not sent twice`);
   handingOver.add(anchor);
@@ -881,7 +909,7 @@ async function handOver(player: RpgPlayer, anchor: string, started = Date.now())
     if (!(await w.host.balances()).some((b) => b.policyAnchorB32 === anchor && b.available === 1n)) {
       throw new Error(`The game account no longer holds ${what}: it was handed over already, so it is not sent again`);
     }
-    const seq = await w.host.request(sessionOf(seat), {
+    const seq = await w.host.request(sessionFor(seat, to), {
       case: 'acceptIssued',
       value: new pb.ConnectAcceptIssuedV1({ anchor: fromB32(anchor) }),
     });
@@ -1233,7 +1261,8 @@ export function onCommitted(player: RpgPlayer, command: Command, before: GameSta
   if (finished && battle!.outcome === 'captured') {
     const caught = after.creatures[after.creatures.length - 1];
     web2(player, 'Captured', `${displayName(caught)} joins your party: the game issues it as an object in your wallet`);
-    enqueue(player, 'Delivering the creature', () => deliverCreature(player, caught.id, caught.species));
+    const to = recipientOf(seatOf(player));
+    enqueue(player, 'Delivering the creature', () => deliverCreature(player, caught.id, caught.species, to));
   }
 }
 
