@@ -1,0 +1,6 @@
+# On dsm-games-1 one Caddy (/opt/https) serves both Wildstate and Open Boxes, so the
+# repository compose file's own https service is not started here.
+# Use: docker compose -p wildstate -f compose.yml -f compose.games.yml <command>
+services:
+  https:
+    profiles: [standalone]
