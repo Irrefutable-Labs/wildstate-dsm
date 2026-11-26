@@ -40,6 +40,10 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: android-actions/setup-android@v3
+        with:
+          # The default asks for the 'tools' package, which the runner's
+          # command-line tools (16.0) no longer have: sdkmanager exits 1.
+          packages: platform-tools
       - run: sdkmanager 'platforms;android-35' 'build-tools;35.0.0'
       - name: Restore release signing key
         env:
@@ -75,6 +79,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A release made by hand for this tag is left as it is; the build is
+          # kept as the workflow's artifact.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "::notice::Release $GITHUB_REF_NAME already exists; its files are left as they are. This build is the workflow artifact."
+            exit 0
+          fi
           gh release create "$GITHUB_REF_NAME" release/wildstate.apk release/SHA256SUMS --draft --title "Wildstate $GITHUB_REF_NAME" --notes 'Install wildstate.apk on Android 8 or newer. This online game requires an internet connection and the DSM wallet. Verify SHA256SUMS before installing. Publish this draft only after testing the app against the game server and the wallet connection.'
       - name: Remove temporary signing key
         if: always()
