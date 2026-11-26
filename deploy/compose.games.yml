@@ -1,0 +1,9 @@
+# On dsm-games-1 one Caddy (/opt/https) serves Wildstate, Sennite and Open Boxes, so the repository compose file's own
+# https service is not started here; and the account may use 2 GB: verifying a staked match's vaults took it past
+# 1 GB on 2026-11-26 and it was OOM-killed mid-match.
+# Use: docker compose -p wildstate -f compose.yml -f compose.games.yml <command>
+services:
+  https:
+    profiles: [standalone]
+  account:
+    mem_limit: 2g
