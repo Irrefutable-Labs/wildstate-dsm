@@ -28,8 +28,12 @@ import {
 } from '../../domain/match';
 import { b64, commitEntry, encodeMove, encodeSetup, resignEntry, revealEntry, unb64, type Bytes, type SetupSide } from '../../domain/program';
 
-/** How long a ready may wait on the other wallet before the waiting one withdraws (the game's own limit). */
-export const READY_MS = 60_000;
+/**
+ * How long a ready may wait on the other wallet before the waiting one withdraws (the game's own limit). A ready verifies
+ * both stake vaults first: on the beta fleet on 2026-11-26 a phone's wallet took longer than a minute, and a 60 s limit
+ * voided the match.
+ */
+export const READY_MS = 240_000;
 
 /** What the match screens and the lobby are told when a staked match moves. */
 export interface StakedEvents {
