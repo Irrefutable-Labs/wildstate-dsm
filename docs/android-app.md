@@ -19,7 +19,7 @@ Use JDK 17 or 21 and Android SDK 35. Set ANDROID_HOME, or create ignored android
 
 ## Public APK for GitHub
 
-Set VITE_GAME_HOST to the public game server's hostname (HTTPS is implied), for example `wildstate.34.58.75.224.sslip.io`. Release builds reject a client built without a public HTTPS hostname, and missing signing credentials. The public manifest does not allow cleartext HTTP. The Wi-Fi address is never accepted for a release.
+Set VITE_GAME_HOST to the public game server's hostname (HTTPS is implied), for example `wildstate.148.113.137.67.sslip.io`, the hosted game server. Release builds reject a client built without a public HTTPS hostname, and missing signing credentials. The public manifest does not allow cleartext HTTP. The Wi-Fi address is never accepted for a release.
 
 Use one permanent release signing key for every update. Keep an encrypted backup outside GitHub. Generate it with Android Studio's signed APK wizard or keytool; never commit the key or passwords. Configure these GitHub secrets:
 
